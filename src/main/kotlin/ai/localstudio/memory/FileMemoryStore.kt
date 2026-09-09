@@ -79,51 +79,17 @@ class FileMemoryStore(
 
     private fun snapshot(): List<MemoryItem> = synchronized(lock) { items.values.toList() }
 
-    override suspend fun search(query: MemoryQuery): List<MemoryItem> {
-        val terms = tokenize(query.text)
-        // A caller that scopes by metadata is stating relevance explicitly
-        // — "exactly this attached document's chunks" — and needs no
-        // lexical overlap on top of that. Requiring one anyway is what made
-        // a plain "what does this file say" find nothing: a meta-question
-        // about a just-attached document shares no vocabulary with that
-        // document's actual content, by definition, no matter how relevant
-        // it obviously is. Without a metadata filter this is an ordinary
-        // free-text query, unchanged: an empty or entirely stop-word query
-        // still returns nothing, and every result still needs a shared term.
-        val requireOverlap = query.metadataFilter.isEmpty()
-        if (requireOverlap && terms.isEmpty()) return emptyList()
+    override suspend fun search(query: MemoryQuery): List<MemoryItem> = MemoryRanking.search(snapshot(), query)
 
-        val all = snapshot()
-        val newest = all.maxOfOrNull { it.createdAt } ?: return emptyList()
-        val oldest = all.minOfOrNull { it.createdAt } ?: newest
-        val span = (newest - oldest).coerceAtLeast(1)
-
-        return all
-            .filter { it.scope in query.scopes }
-            .filter { item -> query.metadataFilter.all { (k, v) -> item.metadata[k] == v } }
-            .mapNotNull { item ->
-                val overlap = overlap(terms, tokenize(item.text))
-                if (requireOverlap && overlap == 0.0) return@mapNotNull null
-                // Recency applies only to time-bound memories: a preference
-                // stated a month ago is exactly as true as one stated today.
-                val recency = if (item.scope == MemoryScope.SEMANTIC) {
-                    0.0
-                } else {
-                    (item.createdAt - oldest).toDouble() / span
-                }
-                item.copy(relevance = (overlap + recency * RECENCY_WEIGHT) * scopeWeight(item.scope))
-            }
-            .sortedWith(compareByDescending<MemoryItem> { it.relevance ?: 0.0 }.thenBy { it.id })
-            .take(query.limit)
-    }
-
-    override suspend fun remember(text: String, scope: MemoryScope, metadata: Map<String, String>): String =
-        synchronized(lock) {
+    override suspend fun remember(text: String, scope: MemoryScope, metadata: Map<String, String>): String {
+        require(text.isNotBlank()) { "cannot remember blank text" }
+        return synchronized(lock) {
             val id = nextId()
             items[id] = MemoryItem(id, text.trim(), scope, clock(), metadata = metadata)
             persist()
             id
         }
+    }
 
     override suspend fun forget(id: String) {
         synchronized(lock) {
@@ -162,35 +128,8 @@ class FileMemoryStore(
 
     fun all(): List<MemoryItem> = snapshot()
 
-    private fun tokenize(text: String): Set<String> =
-        text.lowercase()
-            .split(NON_WORD)
-            .filter { it.length >= MIN_TERM_LENGTH }
-            .toSet()
-
-    /** Jaccard-style overlap, normalised by the query so long memories are not favoured. */
-    private fun overlap(queryTerms: Set<String>, itemTerms: Set<String>): Double {
-        if (itemTerms.isEmpty()) return 0.0
-        val shared = queryTerms.count { it in itemTerms }
-        return shared.toDouble() / queryTerms.size
-    }
-
-    /**
-     * A stable fact beats an episode that matches equally well: semantic memory
-     * is the distilled form, and the episode it was distilled from is
-     * redundant. Between episodes, recency still decides.
-     */
-    private fun scopeWeight(scope: MemoryScope): Double = when (scope) {
-        MemoryScope.SEMANTIC -> 1.4
-        MemoryScope.EPISODIC -> 1.0
-        MemoryScope.WORKING -> 1.0
-    }
-
     companion object {
         const val CONVERSATION_KEY = "conversationId"
-        private const val RECENCY_WEIGHT = 0.25
-        private const val MIN_TERM_LENGTH = 3
-        private val NON_WORD = Regex("[^\\p{L}\\p{N}]+")
 
         /**
          * Default extraction: keep working-memory entries verbatim as episodic

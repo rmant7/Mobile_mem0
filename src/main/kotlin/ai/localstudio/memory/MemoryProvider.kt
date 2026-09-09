@@ -42,7 +42,11 @@ data class MemoryQuery(
     val scopes: Set<MemoryScope> = setOf(MemoryScope.EPISODIC, MemoryScope.SEMANTIC),
     val limit: Int = 8,
     val metadataFilter: Map<String, String> = emptyMap(),
-)
+) {
+    init {
+        require(limit >= 0) { "limit must not be negative: $limit" }
+    }
+}
 
 /**
  * Decides what from a finished exchange is worth keeping.
