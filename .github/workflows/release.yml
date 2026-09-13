@@ -1,0 +1,61 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (for a tag pushed before this workflow existed — omit to use the tag that triggered this run)"
+        required: false
+      notes:
+        description: "Release notes body (Markdown). Leave empty to auto-generate from the commit log."
+        required: false
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve the tag being released
+        id: tag
+        run: |
+          tag="${{ github.event.inputs.tag }}"
+          if [ -z "$tag" ]; then
+            tag="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # A tag is a promise this commit actually builds and passes its own
+      # tests — checked here rather than assumed, since this can also be
+      # triggered by hand for a tag pushed before this workflow existed.
+      - name: Verify the tagged commit builds and passes tests
+        run: ./gradlew --no-daemon build
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.tag.outputs.tag }}"
+          notes="${{ github.event.inputs.notes }}"
+          if [ -n "$notes" ]; then
+            gh release create "$tag" --title "$tag" --notes "$notes"
+          else
+            gh release create "$tag" --title "$tag" --generate-notes
+          fi
