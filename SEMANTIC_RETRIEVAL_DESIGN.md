@@ -1,6 +1,6 @@
 # Semantic retrieval (v0.3) — design
 
-**Status: v0.3.0-alpha1 implements steps 1–8 below.** `MemoryEmbedder`,
+**Status: v0.3.0-alpha3 implements steps 1–8 below.** `MemoryEmbedder`,
 `MemorySemanticIndex`, `FileSemanticIndex`, `MemoryCandidate`, and the
 per-backend `candidates()` wiring all exist and are covered by the shared
 contract test suite, including forget()/consolidate() vector cleanup and a
@@ -8,17 +8,31 @@ model/dimension mismatch degrading to lexical-only rather than to nothing.
 `semanticScore` reaches the consuming app's private ranking layer, at a
 fusion weight of `0.0` — deliberately unconsidered, not a guess (see step 9).
 
+As of alpha3, `MemoryEmbedder` is split into `embedForStorage`/
+`embedForQuery` rather than one `embed` method — most real embedding models
+(e5, bge, gte, and others) are asymmetric dual encoders trained with a
+different prefix for what they index than for what searches it, and a
+single generic method has no seam for that distinction. Changed while still
+alpha, before anything outside this repo's own two backends implemented the
+interface. The consuming app's `LlamaCppMemoryEmbedder` also gained a
+required `pooling` parameter (no default) — a wrong pooling choice for a
+given model, like a wrong prefix, does not error, it silently produces
+plausible-looking but degraded vectors.
+
 **No concrete embedding model is chosen or downloadable yet, on purpose.**
 Every abstraction here is built and tested against a fake, deterministic
 `MemoryEmbedder` — nothing in this repo, or in the consuming app's build,
-references a real Hugging Face repository, GGUF filename, or model id. That
-choice needs verification this repository has no way to perform (fetching a
-real model listing, confirming a specific GGUF quant exists at a specific
-path, and eventually running it against real device hardware) and must not
-be guessed at from training-data familiarity with model names that may have
-been renamed, requantized, or taken down since. See "Choosing the concrete
-model" near the end of this document for exactly what that verification
-needs to cover before a `LocalModelSeed` entry and JNI wiring reference one.
+references a real Hugging Face repository, GGUF filename, or model id.
+Candidate repos have since been identified externally (not verified from
+inside this environment) — see the consuming app's own
+`ExperimentalEmbeddingModels.kt`, deliberately kept out of any production
+code path — but none has been loaded, embedded with, or measured yet. That
+verification needs real network and device access this repository was
+written without, and must not be guessed at from training-data familiarity
+with model names that may have been renamed, requantized, or taken down
+since. See "Choosing the concrete model" near the end of this document for
+exactly what it still needs to cover before a `LocalModelSeed` entry
+references one.
 
 This document otherwise exists to be argued with *before* any of the rest of
 it is built, because v0.3 touches five things at once — the open-source/
@@ -301,26 +315,43 @@ implementation should ship ahead of. Whoever picks up this step needs to
 actually verify — with real network and, eventually, real device or
 emulator access, neither of which this design work had — at least:
 
-- **The model exists, right now, as a GGUF.** A specific Hugging Face repo
-  and exact filename, confirmed reachable (not renamed, not taken down,
-  not gated behind a license click-through this app's plain download can't
-  satisfy — see `LocalModelSeed.repoIds`'s own doc comment on why gated
-  official repos need a community mirror listed first).
+- **The model exists, right now, as a GGUF, at the exact filename used.**
+  Candidate repos (`cstr/multilingual-e5-small-GGUF` at `IQ4_XS`,
+  `groonga/multilingual-e5-base-Q4_K_M-GGUF` at `Q4_K_M`, and two more —
+  see the consuming app's `ExperimentalEmbeddingModels.kt`) were identified
+  externally, not from inside this environment or verified by fetching
+  their listings — confirm each is still reachable (not renamed, not taken
+  down, not gated behind a license click-through this app's plain download
+  can't satisfy — see `LocalModelSeed.repoIds`'s own doc comment on why
+  gated official repos need a community mirror listed first) and get the
+  exact current file name directly from the repo, not from this document.
 - **It is actually multilingual and actually small enough.** Confirm
   parameter count, output dimension, and quantized file size directly from
   that listing — not from a model name's family resemblance to one this
   document guessed might fit.
-- **It embeds correctly through this repo's own `nativeEmbed` path.** Load
-  it via `nativeLoadEmbeddingModel`, embed a few known sentence pairs, and
-  check the results make sense (near-duplicates score high, unrelated
-  sentences score low) — the JNI has been checked against llama.cpp's own
-  API by reading, never by running.
-- **Mean pooling is the right choice for this specific model.** This design
-  hardcodes `LLAMA_POOLING_TYPE_MEAN` in `nativeLoadEmbeddingModel`; some
-  embedding checkpoints expect CLS-token pooling instead, and using the
-  wrong one silently produces *usable-looking but wrong* vectors rather than
-  an error — exactly the failure mode hardest to notice without checking a
-  known-similar/known-dissimilar pair by hand.
+- **It embeds correctly through this repo's own `nativeEmbed` path.** The
+  consuming app now has a manual, on-device harness for exactly this —
+  `ExperimentalEmbeddingModelTest` (androidTest, skipped rather than run
+  when no model file has been placed for it) — that loads a candidate,
+  embeds a few known sentence pairs, and checks near-duplicates score
+  higher than unrelated ones. The JNI itself has been checked against
+  llama.cpp's own API by reading its source, never by running it.
+- **The pooling mode is the right one for this specific model.**
+  `nativeLoadEmbeddingModel` now takes pooling as a required parameter
+  (`EmbeddingPooling.MEAN`/`CLS`/`LAST`) rather than hardcoding mean
+  pooling — e5-family models are trained for mean pooling, but this must
+  still be confirmed per model, not assumed from family resemblance. A
+  wrong choice silently produces *usable-looking but wrong* vectors rather
+  than an error — exactly the failure mode hardest to notice without
+  checking a known-similar/known-dissimilar pair by hand, which is what
+  `ExperimentalEmbeddingModelTest` exists to do.
+- **Query/passage prefixes match what the model was actually trained on.**
+  `MemoryEmbedder.embedForQuery`/`embedForStorage` (and
+  `LlamaCppMemoryEmbedder`'s `queryPrefix`/`passagePrefix` parameters) exist
+  for exactly this — e5's own convention is `"query: "`/`"passage: "` — but
+  the exact strings still need confirming from each candidate's own model
+  card, not assumed identical across the whole e5 family or copied from one
+  candidate to the next without checking.
 - **`Capability.EMBEDDING` and the existing model-download UI.** Whether the
   memory embedder reuses the same `Capability`/`LocalModelSeed` machinery
   the document-RAG path already declares, or needs its own — worth deciding
