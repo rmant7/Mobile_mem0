@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.github.rmant7"
-version = "0.2.0"
+version = "0.3.0-alpha1"
 
 repositories {
     mavenCentral()

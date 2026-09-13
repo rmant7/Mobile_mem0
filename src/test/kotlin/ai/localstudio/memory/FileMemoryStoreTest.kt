@@ -224,6 +224,45 @@ class FileMemoryStoreTest {
         assertEquals(big, hits.single().text)
     }
 
+    /** Deterministic stand-in for a real model — see MemoryProviderContractTest's own copy of this same idea. */
+    private class FakeEmbedder(
+        private val vectors: Map<String, FloatArray>,
+        override val dimension: Int = 3,
+        override val modelId: String = "model-a",
+    ) : MemoryEmbedder {
+        override suspend fun embed(texts: List<String>): List<FloatArray> = texts.map { vectors[it] ?: FloatArray(dimension) }
+    }
+
+    @Test
+    fun `a semantic-index model mismatch degrades to lexical retrieval, not to nothing`() = runBlocking {
+        val recordsFile = File.createTempFile("memory-mismatch-test", ".json").apply { deleteOnExit() }
+        val indexFile = File.createTempFile("semantic-index-mismatch-test", ".bin").apply { deleteOnExit() }
+        val text = "решили использовать llama.cpp"
+        val vector = floatArrayOf(1f, 0f, 0f)
+
+        val embedderA = FakeEmbedder(mapOf(text to vector), modelId = "model-a")
+        val indexA = FileSemanticIndex(indexFile, embedderA.modelId, embedderA.dimension)
+        val memoryA = FileMemoryStore(recordsFile, semanticIndex = indexA, embedder = embedderA)
+        memoryA.remember(text, MemoryScope.EPISODIC)
+        memoryA.embedPending()
+
+        // Simulates the app switching to a different (or updated) embedding
+        // model — the same file paths, but a new FileSemanticIndex instance
+        // that no longer matches what's on disk (see FileSemanticIndex's own
+        // "reopening with a different modelId discards the old vectors"
+        // test). No new embedder call happened for the record yet, so its
+        // semantic score is simply unavailable, not wrong.
+        val embedderB = FakeEmbedder(mapOf(text to vector), modelId = "model-b")
+        val indexB = FileSemanticIndex(indexFile, embedderB.modelId, embedderB.dimension)
+        val memoryB = FileMemoryStore(recordsFile, semanticIndex = indexB, embedder = embedderB)
+
+        val candidates = memoryB.candidates(MemoryQuery("что решили про llama"))
+
+        assertEquals(1, candidates.size, "the record itself must still be found lexically after a model change")
+        assertEquals(0, candidates.single().lexicalRank)
+        assertEquals(null, candidates.single().semanticRank, "no vector exists yet under the new model")
+    }
+
     /**
      * Reading while writing is the app's normal case, not an edge case: a
      * generation searches memory on a background thread for the length of a

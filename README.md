@@ -166,12 +166,18 @@ kotlinx-serialization.
 
 ## What this deliberately isn't (yet)
 
-- **No embeddings / semantic search.** Retrieval is lexical word-overlap.
-  Good enough to ship, not competitive with a real vector index — swapping
-  one in behind `MemoryProvider` is exactly the kind of change this
-  interface exists to make painless, not a rewrite. Being designed now for
-  v0.3: see [`SEMANTIC_RETRIEVAL_DESIGN.md`](SEMANTIC_RETRIEVAL_DESIGN.md)
-  (a proposal open for argument, not a committed plan).
+- **No embeddings / semantic search — the abstractions exist, no model does
+  yet.** Default retrieval is still lexical word-overlap. `v0.3.0-alpha1`
+  adds `MemoryEmbedder`, `MemorySemanticIndex`, `FileSemanticIndex`, and
+  `MemoryCandidate`-based fusion signals, all proven against a fake
+  embedder — but no concrete embedding model is chosen, downloadable, or
+  wired up anywhere yet, deliberately: picking one needs verifying a real
+  Hugging Face GGUF listing exists and behaves correctly, which is real
+  work with its own risk of guessing wrong, not a decision to make from
+  memory of model names. See
+  [`SEMANTIC_RETRIEVAL_DESIGN.md`](SEMANTIC_RETRIEVAL_DESIGN.md)'s
+  "Choosing the concrete model" section for exactly what that step still
+  needs.
 - **No bundled model-calling extractor.** `MemoryExtractor` is one method;
   you provide the model call. A reference implementation that calls a local
   GGUF model directly is a natural next addition.

@@ -1,11 +1,30 @@
 # Semantic retrieval (v0.3) — design
 
-**Status: proposal.** Nothing here is implemented. This document exists to be
-argued with *before* any of it is built, because v0.3 touches five things at
-once — the open-source/commercial boundary, the persistence format, the
-embedding lifecycle, a native model runtime, and the public API — and getting
-the API right after discovering the storage requirements is the expensive
-order to do it in.
+**Status: v0.3.0-alpha1 implements steps 1–8 below.** `MemoryEmbedder`,
+`MemorySemanticIndex`, `FileSemanticIndex`, `MemoryCandidate`, and the
+per-backend `candidates()` wiring all exist and are covered by the shared
+contract test suite, including forget()/consolidate() vector cleanup and a
+model/dimension mismatch degrading to lexical-only rather than to nothing.
+`semanticScore` reaches the consuming app's private ranking layer, at a
+fusion weight of `0.0` — deliberately unconsidered, not a guess (see step 9).
+
+**No concrete embedding model is chosen or downloadable yet, on purpose.**
+Every abstraction here is built and tested against a fake, deterministic
+`MemoryEmbedder` — nothing in this repo, or in the consuming app's build,
+references a real Hugging Face repository, GGUF filename, or model id. That
+choice needs verification this repository has no way to perform (fetching a
+real model listing, confirming a specific GGUF quant exists at a specific
+path, and eventually running it against real device hardware) and must not
+be guessed at from training-data familiarity with model names that may have
+been renamed, requantized, or taken down since. See "Choosing the concrete
+model" near the end of this document for exactly what that verification
+needs to cover before a `LocalModelSeed` entry and JNI wiring reference one.
+
+This document otherwise exists to be argued with *before* any of the rest of
+it is built, because v0.3 touches five things at once — the open-source/
+commercial boundary, the persistence format, the embedding lifecycle, a
+native model runtime, and the public API — and getting the API right after
+discovering the storage requirements is the expensive order to do it in.
 
 ## The problem this solves
 
@@ -246,16 +265,20 @@ so every backend proves them rather than each being trusted:
   it cannot share the chat model's. On a phone already doing RAM-aware model
   eviction, that is another consumer competing for the same budget.
 - **It must be multilingual.** The primary usage is Russian. `all-MiniLM-L6-v2`
-  and similar English-only models are not usable here. `multilingual-e5-small`
-  (118M params, 384 dimensions, ~70 MB quantized) is the realistic candidate;
-  `bge-m3` and LaBSE are far too large for the target devices.
+  and similar English-only models are not usable here. A model in the
+  `multilingual-e5` family (small/base) is the plausible shape of candidate on
+  size grounds alone; `bge-m3` and LaBSE are likely too large for the target
+  devices. Neither claim has been checked against a real, currently-existing
+  GGUF listing — see "Choosing the concrete model" below.
 - **Every search embeds the query.** One model call per turn, on the latency
   path, in addition to the generation call.
-- **No embedding support exists in the native layer today.** `llama_jni.cpp`
-  exports nothing for embeddings — only comments referencing them in the
-  multimodal path. A new JNI entry point (pooling configuration plus
-  `llama_get_embeddings_seq`) is real native work, and it belongs to the
-  consuming app, not to this repo.
+- **The native entry point exists in the consuming app (`llama_jni.cpp`),
+  unverified.** `nativeLoadEmbeddingModel`/`nativeEmbed` were added and their
+  llama.cpp API usage checked line-by-line against the actual vendored
+  header and upstream reference implementation at the exact pinned commit —
+  but with no real embedding GGUF to load, nothing has run them, on an
+  emulator or a device. This is real, load-bearing native code that has only
+  been checked by a compiler so far.
 
 ## What this deliberately is not
 
@@ -271,26 +294,68 @@ so every backend proves them rather than each being trusted:
 - **Not a fusion algorithm.** See the boundary section. This repo's last word
   is a deduplicated candidate list with per-retriever ranks.
 
+## Choosing the concrete model
+
+Deliberately not done yet, and not a guess this document or its
+implementation should ship ahead of. Whoever picks up this step needs to
+actually verify — with real network and, eventually, real device or
+emulator access, neither of which this design work had — at least:
+
+- **The model exists, right now, as a GGUF.** A specific Hugging Face repo
+  and exact filename, confirmed reachable (not renamed, not taken down,
+  not gated behind a license click-through this app's plain download can't
+  satisfy — see `LocalModelSeed.repoIds`'s own doc comment on why gated
+  official repos need a community mirror listed first).
+- **It is actually multilingual and actually small enough.** Confirm
+  parameter count, output dimension, and quantized file size directly from
+  that listing — not from a model name's family resemblance to one this
+  document guessed might fit.
+- **It embeds correctly through this repo's own `nativeEmbed` path.** Load
+  it via `nativeLoadEmbeddingModel`, embed a few known sentence pairs, and
+  check the results make sense (near-duplicates score high, unrelated
+  sentences score low) — the JNI has been checked against llama.cpp's own
+  API by reading, never by running.
+- **Mean pooling is the right choice for this specific model.** This design
+  hardcodes `LLAMA_POOLING_TYPE_MEAN` in `nativeLoadEmbeddingModel`; some
+  embedding checkpoints expect CLS-token pooling instead, and using the
+  wrong one silently produces *usable-looking but wrong* vectors rather than
+  an error — exactly the failure mode hardest to notice without checking a
+  known-similar/known-dissimilar pair by hand.
+- **`Capability.EMBEDDING` and the existing model-download UI.** Whether the
+  memory embedder reuses the same `Capability`/`LocalModelSeed` machinery
+  the document-RAG path already declares, or needs its own — worth deciding
+  once a real model is in hand, not before.
+
+Only once these are confirmed does a `LocalModelSeed` entry, a
+`LlamaCppMemoryEmbedder` construction site in `AppContainer`, and a non-zero
+`RankingWeights.semantic` belong in either repo.
+
 ## Order of work
 
 Each step is reviewable on its own, and the expensive, hard-to-reverse
 decisions come before anything depends on them:
 
-1. **This document, approved.**
+1. **This document, approved.** ✅
 2. **Persistence contract** — the sidecar format and its compaction rule,
-   written down before code.
-3. **`MemoryEmbedder`** — interface only, no implementation.
-4. **`MemorySemanticIndex`** — interface only.
+   written down before code. ✅
+3. **`MemoryEmbedder`** — interface only, no implementation. ✅
+4. **`MemorySemanticIndex`** — interface only. ✅
 5. **Flat-file index implementation** + contract tests, driven by a fake
-   embedder. No real model involved, fully testable on the JVM.
-6. **Embedding model + JNI** — in the consuming app: the native entry point,
-   model download/management, `LlamaCppMemoryEmbedder`.
-7. **Semantic candidate retrieval wired into `candidates()`.**
-8. **Fusion and ranking** — in the private layer: RRF and/or weighted, both
-   behind `ContextRanker`.
+   embedder. No real model involved, fully testable on the JVM. ✅
+6. **JNI entry point**, in the consuming app — `nativeLoadEmbeddingModel`/
+   `nativeEmbed`, checked against llama.cpp's own API by reading its source
+   at the pinned commit. ✅ code exists; ⏳ **unverified against any real
+   model** — see "Choosing the concrete model" above, which is the actual
+   remaining half of this step.
+7. **Semantic candidate retrieval wired into `candidates()`.** ✅
+8. **Fusion and ranking** — in the private layer: `semanticScore` reaches
+   `HeuristicContextRanker` behind `RankingWeights.semantic`. ✅ plumbing;
+   ⏳ **weight is 0.0** — see step 9.
 9. **Benchmark and decide** — `ExperimentLogger`/`ExperimentRecord` already
    exist to compare modes on real queries. Which fusion, and what weights, is
-   a measurement, not a guess. This is what Stage 3's harness was built for.
+   a measurement, not a guess. **Blocked on a real model** (step 6's
+   remaining half) to have anything real to measure.
 
-Steps 1–5 need no model, no NDK, and no downloads, and they are where the
-irreversible API decisions live.
+Steps 1–5 needed no model, no NDK, and no downloads, and were where the
+irreversible API decisions lived — all landed in v0.3.0-alpha1. Everything
+from here forward is blocked on a verified, concrete embedding model.
