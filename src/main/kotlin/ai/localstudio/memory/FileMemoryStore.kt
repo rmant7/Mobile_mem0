@@ -1,8 +1,11 @@
 package ai.localstudio.memory
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 private data class StoredItem(
@@ -47,6 +50,22 @@ class FileMemoryStore(
     private val lock = Any()
     private val items = LinkedHashMap<String, MemoryItem>()
     private var counter = 0L
+
+    // One Mutex per conversation, not a single global one: consolidate()
+    // itself already runs its (possibly slow, model-calling) extractor
+    // outside [lock] specifically so it doesn't block search/remember/forget
+    // for unrelated conversations — a single shared consolidate-wide lock
+    // would defeat that. But two concurrent consolidate() calls for the
+    // *same* conversation both read the same working-memory snapshot before
+    // either has removed anything, both extract from it, and both then
+    // write their own copy of the result — the same working memory
+    // consolidated twice into duplicated durable memories. This is what
+    // actually closes that race, without serializing unrelated conversations
+    // against each other. Grows by one entry per conversationId ever
+    // consolidated and is never pruned — acceptable for a personal local
+    // store; a Mutex is a handful of bytes, and this matches how the rest of
+    // this app's own long-lived caches are already treated.
+    private val consolidateLocks = ConcurrentHashMap<String, Mutex>()
 
     init {
         synchronized(lock) { load() }
@@ -103,28 +122,46 @@ class FileMemoryStore(
      * clears the working set — working memory that outlives its
      * conversation is just a leak with a nicer name.
      */
-    override suspend fun consolidate(conversationId: String): List<MemoryItem> {
-        val working = snapshot().filter {
-            it.scope == MemoryScope.WORKING && it.metadata[CONVERSATION_KEY] == conversationId
-        }
-        if (working.isEmpty()) return emptyList()
-
-        // Extraction is a model call in a real implementation — deliberately
-        // outside the lock, so a slow extractor cannot block every other
-        // read and write for its whole duration.
-        val extracted = extractor.extract(conversationId, working)
-
-        return synchronized(lock) {
-            working.forEach { items.remove(it.id) }
-            val result = extracted.map { item ->
-                val stored = item.copy(id = nextId(), createdAt = clock())
-                items[stored.id] = stored
-                stored
+    override suspend fun consolidate(conversationId: String): List<MemoryItem> =
+        consolidateLocks.computeIfAbsent(conversationId) { Mutex() }.withLock {
+            val working = snapshot().filter {
+                it.scope == MemoryScope.WORKING && it.metadata[CONVERSATION_KEY] == conversationId
             }
-            persist()
-            result
+            if (working.isEmpty()) return@withLock emptyList()
+
+            // Extraction is a model call in a real implementation — deliberately
+            // outside [lock] (though still inside this conversation's own
+            // consolidate mutex, above), so a slow extractor cannot block
+            // every other read and write for its whole duration. If it
+            // throws, this whole call throws too and nothing below runs —
+            // working memory is left exactly as it was, not half-removed, so
+            // a failed consolidation can simply be retried later rather than
+            // silently losing the conversation it was trying to distil.
+            val extracted = extractor.extract(conversationId, working)
+
+            synchronized(lock) {
+                working.forEach { items.remove(it.id) }
+                val result = extracted
+                    // A durable memory that's still WORKING-scoped is a
+                    // contradiction consolidate() itself would act on: it
+                    // would satisfy this exact filter again on the *next*
+                    // call for this conversation, silently re-entering
+                    // extraction a second time while also being invisible to
+                    // a normal search() (whose default scopes exclude
+                    // WORKING). Dropped rather than coerced to EPISODIC —
+                    // promoting content the extractor explicitly marked
+                    // provisional is a bigger, more surprising liberty than
+                    // just not storing it.
+                    .filter { it.scope != MemoryScope.WORKING }
+                    .map { item ->
+                        val stored = item.copy(id = nextId(), createdAt = clock())
+                        items[stored.id] = stored
+                        stored
+                    }
+                persist()
+                result
+            }
         }
-    }
 
     fun all(): List<MemoryItem> = snapshot()
 
