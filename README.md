@@ -12,15 +12,21 @@ dependency on the app it came from.
 
 ## What it actually is
 
-Three things:
+Four things:
 
 - **`MemoryProvider`** — the contract: `remember`, `search`, `forget`,
   `consolidate`. Whatever backs it, the rest of your app talks to this and
-  nothing else.
+  nothing else. `remember` rejects blank text and `MemoryQuery` rejects a
+  negative `limit` outright, rather than silently storing or querying
+  nonsense.
 - **`FileMemoryStore`** — a persistent, lexical-search implementation of that
   contract. JSON file on disk, thread-safe, survives a process restart.
   Retrieval is shared-term overlap weighted by scope and recency — not
   embeddings, and not pretending to be.
+- **`InMemoryMemoryProvider`** — the same contract and the same ranking
+  (both share one internal `MemoryRanking` implementation, so neither drifts
+  from the other), backed by nothing but a map. For tests that want real
+  retrieval behaviour without touching disk.
 - **`MemoryExtractor`** — the seam where a language model plugs in for
   *consolidation*: turning a finished conversation's raw working memory into
   a handful of durable facts, instead of keeping every line verbatim

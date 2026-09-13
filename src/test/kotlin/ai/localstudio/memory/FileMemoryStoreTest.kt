@@ -4,6 +4,7 @@ import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class FileMemoryStoreTest {
@@ -168,6 +169,59 @@ class FileMemoryStoreTest {
             writeText("{ not valid json")
         }
         assertTrue(FileMemoryStore(corrupt).all().isEmpty())
+    }
+
+    @Test
+    fun `blank or empty text is rejected rather than silently stored`() = runBlocking {
+        val memory = provider()
+
+        assertFailsWith<IllegalArgumentException> { memory.remember("", MemoryScope.SEMANTIC) }
+        assertFailsWith<IllegalArgumentException> { memory.remember("   \n\t", MemoryScope.SEMANTIC) }
+        assertTrue(memory.all().isEmpty())
+    }
+
+    @Test
+    fun `a negative limit is rejected, a zero limit just returns nothing`() = runBlocking {
+        val memory = provider()
+        memory.remember("что-то про Kotlin", MemoryScope.SEMANTIC)
+
+        assertFailsWith<IllegalArgumentException> { MemoryQuery("Kotlin", limit = -1) }
+        assertTrue(memory.search(MemoryQuery("Kotlin", limit = 0)).isEmpty())
+    }
+
+    @Test
+    fun `several scopes at once return items from any of them`() = runBlocking {
+        val memory = provider()
+        memory.remember("Проект использует Kotlin", MemoryScope.SEMANTIC)
+        memory.remember("Вчера чинили Kotlin-пайплайн", MemoryScope.EPISODIC)
+        memory.remember("Kotlin обсуждали в рабочей памяти", MemoryScope.WORKING)
+
+        val hits = memory.search(MemoryQuery("Kotlin", scopes = setOf(MemoryScope.SEMANTIC, MemoryScope.EPISODIC)))
+
+        assertEquals(2, hits.size)
+        assertTrue(hits.none { it.scope == MemoryScope.WORKING })
+    }
+
+    @Test
+    fun `identical entries remembered twice both survive as separate items`() = runBlocking {
+        val memory = provider()
+        val first = memory.remember("одна и та же реплика", MemoryScope.EPISODIC)
+        val second = memory.remember("одна и та же реплика", MemoryScope.EPISODIC)
+
+        assertTrue(first != second)
+        assertEquals(2, memory.search(MemoryQuery("одна и та же реплика", limit = 10)).size)
+    }
+
+    @Test
+    fun `a large item is stored and retrieved intact`() = runBlocking {
+        val memory = provider()
+        val big = "слово ".repeat(20_000) + "уникальныйМаркер"
+
+        memory.remember(big, MemoryScope.SEMANTIC)
+
+        val hits = memory.search(MemoryQuery("уникальныйМаркер"))
+        assertEquals(1, hits.size)
+        assertEquals(big, hits.single().text)
     }
 
     /**

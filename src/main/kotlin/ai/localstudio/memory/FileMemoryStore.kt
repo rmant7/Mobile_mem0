@@ -1,8 +1,11 @@
 package ai.localstudio.memory
 
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 
 @Serializable
 private data class StoredItem(
@@ -48,6 +51,22 @@ class FileMemoryStore(
     private val items = LinkedHashMap<String, MemoryItem>()
     private var counter = 0L
 
+    // One Mutex per conversation, not a single global one: consolidate()
+    // itself already runs its (possibly slow, model-calling) extractor
+    // outside [lock] specifically so it doesn't block search/remember/forget
+    // for unrelated conversations — a single shared consolidate-wide lock
+    // would defeat that. But two concurrent consolidate() calls for the
+    // *same* conversation both read the same working-memory snapshot before
+    // either has removed anything, both extract from it, and both then
+    // write their own copy of the result — the same working memory
+    // consolidated twice into duplicated durable memories. This is what
+    // actually closes that race, without serializing unrelated conversations
+    // against each other. Grows by one entry per conversationId ever
+    // consolidated and is never pruned — acceptable for a personal local
+    // store; a Mutex is a handful of bytes, and this matches how the rest of
+    // this app's own long-lived caches are already treated.
+    private val consolidateLocks = ConcurrentHashMap<String, Mutex>()
+
     init {
         synchronized(lock) { load() }
     }
@@ -79,51 +98,17 @@ class FileMemoryStore(
 
     private fun snapshot(): List<MemoryItem> = synchronized(lock) { items.values.toList() }
 
-    override suspend fun search(query: MemoryQuery): List<MemoryItem> {
-        val terms = tokenize(query.text)
-        // A caller that scopes by metadata is stating relevance explicitly
-        // — "exactly this attached document's chunks" — and needs no
-        // lexical overlap on top of that. Requiring one anyway is what made
-        // a plain "what does this file say" find nothing: a meta-question
-        // about a just-attached document shares no vocabulary with that
-        // document's actual content, by definition, no matter how relevant
-        // it obviously is. Without a metadata filter this is an ordinary
-        // free-text query, unchanged: an empty or entirely stop-word query
-        // still returns nothing, and every result still needs a shared term.
-        val requireOverlap = query.metadataFilter.isEmpty()
-        if (requireOverlap && terms.isEmpty()) return emptyList()
+    override suspend fun search(query: MemoryQuery): List<MemoryItem> = MemoryRanking.search(snapshot(), query)
 
-        val all = snapshot()
-        val newest = all.maxOfOrNull { it.createdAt } ?: return emptyList()
-        val oldest = all.minOfOrNull { it.createdAt } ?: newest
-        val span = (newest - oldest).coerceAtLeast(1)
-
-        return all
-            .filter { it.scope in query.scopes }
-            .filter { item -> query.metadataFilter.all { (k, v) -> item.metadata[k] == v } }
-            .mapNotNull { item ->
-                val overlap = overlap(terms, tokenize(item.text))
-                if (requireOverlap && overlap == 0.0) return@mapNotNull null
-                // Recency applies only to time-bound memories: a preference
-                // stated a month ago is exactly as true as one stated today.
-                val recency = if (item.scope == MemoryScope.SEMANTIC) {
-                    0.0
-                } else {
-                    (item.createdAt - oldest).toDouble() / span
-                }
-                item.copy(relevance = (overlap + recency * RECENCY_WEIGHT) * scopeWeight(item.scope))
-            }
-            .sortedWith(compareByDescending<MemoryItem> { it.relevance ?: 0.0 }.thenBy { it.id })
-            .take(query.limit)
-    }
-
-    override suspend fun remember(text: String, scope: MemoryScope, metadata: Map<String, String>): String =
-        synchronized(lock) {
+    override suspend fun remember(text: String, scope: MemoryScope, metadata: Map<String, String>): String {
+        require(text.isNotBlank()) { "cannot remember blank text" }
+        return synchronized(lock) {
             val id = nextId()
             items[id] = MemoryItem(id, text.trim(), scope, clock(), metadata = metadata)
             persist()
             id
         }
+    }
 
     override suspend fun forget(id: String) {
         synchronized(lock) {
@@ -137,60 +122,51 @@ class FileMemoryStore(
      * clears the working set — working memory that outlives its
      * conversation is just a leak with a nicer name.
      */
-    override suspend fun consolidate(conversationId: String): List<MemoryItem> {
-        val working = snapshot().filter {
-            it.scope == MemoryScope.WORKING && it.metadata[CONVERSATION_KEY] == conversationId
-        }
-        if (working.isEmpty()) return emptyList()
-
-        // Extraction is a model call in a real implementation — deliberately
-        // outside the lock, so a slow extractor cannot block every other
-        // read and write for its whole duration.
-        val extracted = extractor.extract(conversationId, working)
-
-        return synchronized(lock) {
-            working.forEach { items.remove(it.id) }
-            val result = extracted.map { item ->
-                val stored = item.copy(id = nextId(), createdAt = clock())
-                items[stored.id] = stored
-                stored
+    override suspend fun consolidate(conversationId: String): List<MemoryItem> =
+        consolidateLocks.computeIfAbsent(conversationId) { Mutex() }.withLock {
+            val working = snapshot().filter {
+                it.scope == MemoryScope.WORKING && it.metadata[CONVERSATION_KEY] == conversationId
             }
-            persist()
-            result
+            if (working.isEmpty()) return@withLock emptyList()
+
+            // Extraction is a model call in a real implementation — deliberately
+            // outside [lock] (though still inside this conversation's own
+            // consolidate mutex, above), so a slow extractor cannot block
+            // every other read and write for its whole duration. If it
+            // throws, this whole call throws too and nothing below runs —
+            // working memory is left exactly as it was, not half-removed, so
+            // a failed consolidation can simply be retried later rather than
+            // silently losing the conversation it was trying to distil.
+            val extracted = extractor.extract(conversationId, working)
+
+            synchronized(lock) {
+                working.forEach { items.remove(it.id) }
+                val result = extracted
+                    // A durable memory that's still WORKING-scoped is a
+                    // contradiction consolidate() itself would act on: it
+                    // would satisfy this exact filter again on the *next*
+                    // call for this conversation, silently re-entering
+                    // extraction a second time while also being invisible to
+                    // a normal search() (whose default scopes exclude
+                    // WORKING). Dropped rather than coerced to EPISODIC —
+                    // promoting content the extractor explicitly marked
+                    // provisional is a bigger, more surprising liberty than
+                    // just not storing it.
+                    .filter { it.scope != MemoryScope.WORKING }
+                    .map { item ->
+                        val stored = item.copy(id = nextId(), createdAt = clock())
+                        items[stored.id] = stored
+                        stored
+                    }
+                persist()
+                result
+            }
         }
-    }
 
     fun all(): List<MemoryItem> = snapshot()
 
-    private fun tokenize(text: String): Set<String> =
-        text.lowercase()
-            .split(NON_WORD)
-            .filter { it.length >= MIN_TERM_LENGTH }
-            .toSet()
-
-    /** Jaccard-style overlap, normalised by the query so long memories are not favoured. */
-    private fun overlap(queryTerms: Set<String>, itemTerms: Set<String>): Double {
-        if (itemTerms.isEmpty()) return 0.0
-        val shared = queryTerms.count { it in itemTerms }
-        return shared.toDouble() / queryTerms.size
-    }
-
-    /**
-     * A stable fact beats an episode that matches equally well: semantic memory
-     * is the distilled form, and the episode it was distilled from is
-     * redundant. Between episodes, recency still decides.
-     */
-    private fun scopeWeight(scope: MemoryScope): Double = when (scope) {
-        MemoryScope.SEMANTIC -> 1.4
-        MemoryScope.EPISODIC -> 1.0
-        MemoryScope.WORKING -> 1.0
-    }
-
     companion object {
         const val CONVERSATION_KEY = "conversationId"
-        private const val RECENCY_WEIGHT = 0.25
-        private const val MIN_TERM_LENGTH = 3
-        private val NON_WORD = Regex("[^\\p{L}\\p{N}]+")
 
         /**
          * Default extraction: keep working-memory entries verbatim as episodic
