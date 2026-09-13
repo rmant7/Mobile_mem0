@@ -62,6 +62,21 @@ abstract class MemoryProviderContractTest {
     }
 
     @Test
+    fun `the default candidates() reports search's own order as lexicalRank, with no semantic signal`() = runBlocking {
+        val memory = provider()
+        memory.remember("first item", MemoryScope.SEMANTIC)
+        memory.remember("second item", MemoryScope.SEMANTIC)
+
+        val candidates = memory.candidates(MemoryQuery("item"))
+
+        assertEquals(2, candidates.size)
+        assertEquals(listOf(0, 1), candidates.map { it.lexicalRank })
+        assertTrue(candidates.all { it.semanticRank == null && it.semanticScore == null })
+        // Same items, same order search() itself would have returned them in.
+        assertEquals(memory.search(MemoryQuery("item")).map { it.id }, candidates.map { it.item.id })
+    }
+
+    @Test
     fun `matchAll finds items sharing no vocabulary with the query text`() = runBlocking {
         val memory = provider()
         memory.remember("user prefers dark mode", MemoryScope.SEMANTIC)

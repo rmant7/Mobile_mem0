@@ -74,6 +74,29 @@ fun interface MemoryExtractor {
 }
 
 /**
+ * One [search] hit reported alongside where each retrieval method that found
+ * it ranked it — not a final relevance decision. See
+ * [SEMANTIC_RETRIEVAL_DESIGN.md] (repo root): this module reports signals and
+ * positions; which of them matters more is deliberately left to the
+ * embedding application's own ranking layer, never decided here.
+ *
+ * [lexicalRank] and [semanticRank] are independently nullable — a candidate
+ * found by only one retrieval method has `null` for the other, which is
+ * itself information (this method didn't find it at all), not a zero to
+ * average away. [semanticScore] is the raw cosine similarity backing
+ * [semanticRank]; kept alongside the rank because a caller doing
+ * score-based fusion needs the score, and one doing rank-based fusion
+ * (e.g. Reciprocal Rank Fusion) needs the rank, and this module does not
+ * get to decide which one the caller wants.
+ */
+data class MemoryCandidate(
+    val item: MemoryItem,
+    val lexicalRank: Int?,
+    val semanticRank: Int?,
+    val semanticScore: Float?,
+)
+
+/**
  * Long-term memory, deliberately kept behind an interface.
  *
  * The application must be able to move between backends — a local store,
@@ -90,4 +113,21 @@ interface MemoryProvider {
 
     /** Distils a finished exchange into durable memories. Returns what was written. */
     suspend fun consolidate(conversationId: String): List<MemoryItem>
+
+    /**
+     * [search]'s results as [MemoryCandidate]s, ready for a caller that wants
+     * to fuse them with a second retrieval method's own candidates (see
+     * [MemorySemanticIndex]) rather than trust [search]'s ranking alone.
+     *
+     * Defaulted rather than declared abstract: every existing [MemoryProvider]
+     * — this module's own two backends, and any other implementation already
+     * written against this interface — keeps compiling and behaves exactly as
+     * it does today, with [search]'s own order reported as [lexicalRank] and
+     * no semantic signal at all. A backend that actually maintains a semantic
+     * index overrides this to merge both result sets instead.
+     */
+    suspend fun candidates(query: MemoryQuery): List<MemoryCandidate> =
+        search(query).mapIndexed { index, item ->
+            MemoryCandidate(item, lexicalRank = index, semanticRank = null, semanticScore = null)
+        }
 }
