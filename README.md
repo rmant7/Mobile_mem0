@@ -169,7 +169,9 @@ kotlinx-serialization.
 - **No embeddings / semantic search.** Retrieval is lexical word-overlap.
   Good enough to ship, not competitive with a real vector index — swapping
   one in behind `MemoryProvider` is exactly the kind of change this
-  interface exists to make painless, not a rewrite.
+  interface exists to make painless, not a rewrite. Being designed now for
+  v0.3: see [`SEMANTIC_RETRIEVAL_DESIGN.md`](SEMANTIC_RETRIEVAL_DESIGN.md)
+  (a proposal open for argument, not a committed plan).
 - **No bundled model-calling extractor.** `MemoryExtractor` is one method;
   you provide the model call. A reference implementation that calls a local
   GGUF model directly is a natural next addition.
