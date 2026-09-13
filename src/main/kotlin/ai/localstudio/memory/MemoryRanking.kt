@@ -18,13 +18,13 @@ internal object MemoryRanking {
     fun search(all: List<MemoryItem>, query: MemoryQuery): List<MemoryItem> {
         if (query.limit == 0) return emptyList()
         val terms = tokenize(query.text)
-        // A caller that scopes by metadata is stating relevance explicitly —
-        // "exactly this attached document's chunks" — and needs no lexical
-        // overlap on top of that. See FileMemoryStore's own history: without
-        // this, a meta-question about a just-attached document found
-        // nothing, since it shares no vocabulary with that document's actual
-        // content by definition, no matter how relevant it obviously is.
-        val requireOverlap = query.metadataFilter.isEmpty()
+        // A caller that scopes by metadata, or asks for [MemoryQuery.matchAll],
+        // is stating relevance explicitly and needs no lexical overlap on top
+        // of that. See FileMemoryStore's own history: without this, a
+        // meta-question about a just-attached document (or about memory
+        // itself) found nothing, since it shares no vocabulary with the
+        // actual content by definition, no matter how relevant it obviously is.
+        val requireOverlap = query.metadataFilter.isEmpty() && !query.matchAll
         if (requireOverlap && terms.isEmpty()) return emptyList()
 
         val newest = all.maxOfOrNull { it.createdAt } ?: return emptyList()
@@ -56,9 +56,17 @@ internal object MemoryRanking {
             .filter { it.length >= MIN_TERM_LENGTH }
             .toSet()
 
-    /** Jaccard-style overlap, normalised by the query so long memories are not favoured. */
+    /**
+     * Jaccard-style overlap, normalised by the query so long memories are not
+     * favoured. An empty query has nothing to overlap with — dividing by a
+     * query-term count of zero without this guard produced NaN, which then
+     * poisoned every downstream relevance score for that item; every caller
+     * with an empty [MemoryQuery.text] (metadata-scoped or [MemoryQuery.matchAll])
+     * relied on [requireOverlap] alone to skip the *filter*, but still fed
+     * this NaN into ranking, silently collapsing it to id order.
+     */
     private fun overlap(queryTerms: Set<String>, itemTerms: Set<String>): Double {
-        if (itemTerms.isEmpty()) return 0.0
+        if (itemTerms.isEmpty() || queryTerms.isEmpty()) return 0.0
         val shared = queryTerms.count { it in itemTerms }
         return shared.toDouble() / queryTerms.size
     }

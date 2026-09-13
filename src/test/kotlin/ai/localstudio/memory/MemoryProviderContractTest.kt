@@ -62,6 +62,55 @@ abstract class MemoryProviderContractTest {
     }
 
     @Test
+    fun `matchAll finds items sharing no vocabulary with the query text`() = runBlocking {
+        val memory = provider()
+        memory.remember("user prefers dark mode", MemoryScope.SEMANTIC)
+        memory.remember("decided to use Kotlin for the new module", MemoryScope.EPISODIC)
+
+        // Deliberately shares not one real word with either stored item —
+        // exactly a "what do you know about me" style meta-question, which a
+        // plain lexical search (matchAll = false, the default) would find
+        // nothing for, no matter how relevant everything stored obviously is.
+        val hits = memory.search(MemoryQuery(text = "tell me everything", matchAll = true))
+
+        assertEquals(2, hits.size)
+    }
+
+    @Test
+    fun `a metadata-scoped search with blank text also avoids the NaN relevance collapse`() = runBlocking {
+        // The exact shape a real caller already uses in production (see
+        // AppContainer.rememberDocument / NodeExecutors' attached-document
+        // retrieval): text is blank because a meta-question about a document
+        // shares no vocabulary with its content, and metadataFilter alone
+        // states relevance explicitly. This predates matchAll entirely and
+        // was silently broken by the same NaN before that fix touched the
+        // shared overlap() helper too.
+        val memory = provider()
+        memory.remember("first chunk of the file", MemoryScope.SEMANTIC, metadata = mapOf("source" to "report.pdf"))
+        memory.remember("second chunk of the file", MemoryScope.SEMANTIC, metadata = mapOf("source" to "report.pdf"))
+
+        val hits = memory.search(MemoryQuery(text = "", metadataFilter = mapOf("source" to "report.pdf")))
+
+        assertEquals(2, hits.size)
+        assertTrue(hits.all { it.relevance != null && !it.relevance!!.isNaN() })
+    }
+
+    @Test
+    fun `matchAll with a blank query still ranks results, not just returns them in id order`() = runBlocking {
+        val memory = provider()
+        memory.remember("a semantic fact", MemoryScope.SEMANTIC)
+        memory.remember("an episodic memory", MemoryScope.EPISODIC)
+
+        val hits = memory.search(MemoryQuery(text = "", scopes = MemoryScope.entries.toSet(), matchAll = true))
+
+        assertTrue(
+            hits.all { it.relevance != null && !it.relevance!!.isNaN() },
+            "a blank query's zero query-terms must not divide the overlap score into NaN " +
+                "(NaN silently collapses every item to the same 'relevance', discarding scope/recency weighting)",
+        )
+    }
+
+    @Test
     fun `consolidate promotes working memory out of WORKING and clears it`() = runBlocking {
         val memory = provider()
         memory.remember(

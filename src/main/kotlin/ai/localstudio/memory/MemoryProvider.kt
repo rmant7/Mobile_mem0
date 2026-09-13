@@ -42,6 +42,18 @@ data class MemoryQuery(
     val scopes: Set<MemoryScope> = setOf(MemoryScope.EPISODIC, MemoryScope.SEMANTIC),
     val limit: Int = 8,
     val metadataFilter: Map<String, String> = emptyMap(),
+    /**
+     * Bypasses the requirement that [text] share a term with a stored item —
+     * the same bypass a non-empty [metadataFilter] already grants implicitly
+     * (see [MemoryRanking]'s own comment), made available on its own for a
+     * caller with no metadata to scope by, just a real reason to want
+     * everything in [scopes] back: a question about memory itself ("what do
+     * you know about me?") shares no vocabulary with what's actually stored,
+     * by definition, no matter how relevant every item obviously is.
+     * [text] is still used for ranking when it isn't blank — this only
+     * removes it as a *requirement* for a result to appear at all.
+     */
+    val matchAll: Boolean = false,
 ) {
     init {
         require(limit >= 0) { "limit must not be negative: $limit" }

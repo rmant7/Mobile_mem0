@@ -50,6 +50,12 @@ val thisFile = memory.search(
     MemoryQuery(text = "", metadataFilter = mapOf("source" to "report.pdf")),
 )
 
+// matchAll bypasses the same requirement without needing metadata to scope
+// by — for a question about memory itself ("what do you know about me?"),
+// which shares no vocabulary with what's actually stored, no matter how
+// relevant every item obviously is.
+val everythingRelevant = memory.search(MemoryQuery(text = "what do you know about me?", matchAll = true))
+
 memory.forget(id)
 
 // Turn a conversation's working memory into durable facts, via whichever
