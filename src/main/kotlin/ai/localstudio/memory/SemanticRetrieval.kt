@@ -21,7 +21,7 @@ internal object SemanticRetrieval {
         val pendingIds = index.missing(allItems.map { it.id }).take(limitPerCall)
         val toEmbed = pendingIds.mapNotNull { id -> byId[id]?.let { id to it.text } }
         if (toEmbed.isEmpty()) return
-        val vectors = embedder.embed(toEmbed.map { it.second })
+        val vectors = embedder.embedForStorage(toEmbed.map { it.second })
         toEmbed.forEachIndexed { i, (id, _) -> index.upsert(id, vectors[i]) }
     }
 
@@ -44,8 +44,8 @@ internal object SemanticRetrieval {
         }
         if (index == null || embedder == null || query.text.isBlank()) return lexicalOnly()
 
-        val queryVector = embedder.embed(listOf(query.text)).firstOrNull()
-        if (queryVector == null || queryVector.isEmpty()) return lexicalOnly()
+        val queryVector = embedder.embedForQuery(query.text)
+        if (queryVector.isEmpty()) return lexicalOnly()
 
         val semanticHits = index.search(queryVector, query.limit)
         return CandidateMerge.merge(query, lexicalHits, semanticHits, allItems.associateBy { it.id })

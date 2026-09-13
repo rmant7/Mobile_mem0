@@ -295,7 +295,43 @@ abstract class MemoryProviderContractTest {
         override val dimension: Int = 3,
         override val modelId: String = "fake-embedder",
     ) : MemoryEmbedder {
-        override suspend fun embed(texts: List<String>): List<FloatArray> = texts.map { vectors[it] ?: FloatArray(dimension) }
+        override suspend fun embedForStorage(texts: List<String>): List<FloatArray> = texts.map { vectors[it] ?: FloatArray(dimension) }
+        override suspend fun embedForQuery(query: String): FloatArray = vectors[query] ?: FloatArray(dimension)
+    }
+
+    /**
+     * Records which method each piece of text went through — proving the
+     * query/storage split actually routes correctly end to end, not just
+     * that both methods exist. An asymmetric model applying the wrong side's
+     * prefix produces vectors that still look valid (right dimension, right
+     * rough magnitude) while silently degrading retrieval quality, which is
+     * exactly the class of bug a plain "does it compile" check would miss.
+     */
+    private class RecordingEmbedder(override val dimension: Int = 3, override val modelId: String = "recording-embedder") : MemoryEmbedder {
+        val storageCalls = mutableListOf<String>()
+        val queryCalls = mutableListOf<String>()
+        override suspend fun embedForStorage(texts: List<String>): List<FloatArray> {
+            storageCalls += texts
+            return texts.map { FloatArray(dimension) { 1f } }
+        }
+        override suspend fun embedForQuery(query: String): FloatArray {
+            queryCalls += query
+            return FloatArray(dimension) { 1f }
+        }
+    }
+
+    @Test
+    fun `remembered text is embedded for storage, a search query is embedded for query`() = runBlocking {
+        val embedder = RecordingEmbedder()
+        val index = InMemorySemanticIndex(embedder.modelId, embedder.dimension)
+        val memory = provider(semanticIndex = index, embedder = embedder)
+        memory.remember("Пользователь искал место для зимовки", MemoryScope.EPISODIC)
+        memory.embedPending()
+
+        memory.candidates(MemoryQuery("что предлагали кроме Израиля"))
+
+        assertEquals(listOf("Пользователь искал место для зимовки"), embedder.storageCalls)
+        assertEquals(listOf("что предлагали кроме Израиля"), embedder.queryCalls)
     }
 
     @Test

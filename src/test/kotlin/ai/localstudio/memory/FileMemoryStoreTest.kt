@@ -230,7 +230,8 @@ class FileMemoryStoreTest {
         override val dimension: Int = 3,
         override val modelId: String = "model-a",
     ) : MemoryEmbedder {
-        override suspend fun embed(texts: List<String>): List<FloatArray> = texts.map { vectors[it] ?: FloatArray(dimension) }
+        override suspend fun embedForStorage(texts: List<String>): List<FloatArray> = texts.map { vectors[it] ?: FloatArray(dimension) }
+        override suspend fun embedForQuery(query: String): FloatArray = vectors[query] ?: FloatArray(dimension)
     }
 
     @Test
