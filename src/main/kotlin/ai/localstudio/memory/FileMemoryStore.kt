@@ -36,6 +36,21 @@ private data class StoredState(val items: List<StoredItem> = emptyList(), val co
 class FileMemoryStore(
     private val file: File,
     private val extractor: MemoryExtractor = PromoteWorkingMemory,
+    /**
+     * Both null by default: every existing caller keeps working exactly as
+     * before, lexical-only. Passing both switches [candidates] to also
+     * retrieve semantically — see [embedPending] for how vectors actually
+     * get into [semanticIndex] in the first place, deliberately not from
+     * inside [remember] itself.
+     */
+    private val semanticIndex: MemorySemanticIndex? = null,
+    private val embedder: MemoryEmbedder? = null,
+    // Kept last: existing callers pass this positionally as a trailing
+    // lambda (`FileMemoryStore(file, extractor) { ... }`), which binds to
+    // whichever parameter is actually last — inserting semanticIndex/embedder
+    // after this one instead of before it would silently break every one of
+    // those call sites with a confusing type mismatch at the call site, not
+    // a hint anywhere near this constructor.
     private val clock: () -> Long = System::currentTimeMillis,
 ) : MemoryProvider {
 
@@ -115,6 +130,10 @@ class FileMemoryStore(
             items.remove(id)
             persist()
         }
+        // Outside the lock: a suspend call must never run while holding a
+        // plain synchronized monitor — if it ever genuinely suspended, the
+        // thread would sit blocked on the lock across that suspension point.
+        semanticIndex?.remove(id)
     }
 
     /**
@@ -139,9 +158,9 @@ class FileMemoryStore(
             // silently losing the conversation it was trying to distil.
             val extracted = extractor.extract(conversationId, working)
 
-            synchronized(lock) {
+            val result = synchronized(lock) {
                 working.forEach { items.remove(it.id) }
-                val result = extracted
+                val promoted = extracted
                     // A durable memory that's still WORKING-scoped is a
                     // contradiction consolidate() itself would act on: it
                     // would satisfy this exact filter again on the *next*
@@ -159,9 +178,43 @@ class FileMemoryStore(
                         stored
                     }
                 persist()
-                result
+                promoted
             }
+            // Outside the lock, same reasoning as forget()'s own comment.
+            // The WORKING items just consolidated may already have been
+            // embedded by an earlier embedPending() call; their ids are gone
+            // from items now, and a vector with no matching record left
+            // behind is exactly the kind of orphan CandidateMerge otherwise
+            // has to filter out on every single search from here on.
+            semanticIndex?.let { index -> working.forEach { index.remove(it.id) } }
+            result
         }
+
+    /**
+     * Embeds every stored item [semanticIndex] doesn't have a vector for yet
+     * — the catch-up half of [candidates] being able to retrieve
+     * semantically at all. Deliberately not called from [remember] or
+     * [consolidate] themselves: embedding is a model call, and [remember]
+     * runs on every turn of every conversation — see
+     * `SEMANTIC_RETRIEVAL_DESIGN.md`'s own reasoning for keeping that off
+     * the hot path. The caller decides when catching up is convenient (after
+     * a consolidation, on a periodic background job, ...); this only does
+     * the work once actually asked.
+     *
+     * A no-op, not an error, when [semanticIndex] or [embedder] was never
+     * configured — every existing caller of this class is unaffected by
+     * this method existing at all.
+     */
+    override suspend fun embedPending(limitPerCall: Int) {
+        val index = semanticIndex ?: return
+        val embed = embedder ?: return
+        SemanticRetrieval.embedPending(snapshot(), index, embed, limitPerCall)
+    }
+
+    override suspend fun candidates(query: MemoryQuery): List<MemoryCandidate> {
+        val lexicalHits = search(query)
+        return SemanticRetrieval.candidates(query, lexicalHits, snapshot(), semanticIndex, embedder)
+    }
 
     fun all(): List<MemoryItem> = snapshot()
 

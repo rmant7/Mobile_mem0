@@ -15,6 +15,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class InMemoryMemoryProvider(
     private val extractor: MemoryExtractor = FileMemoryStore.PromoteWorkingMemory,
+    // See FileMemoryStore's own doc comment on these two, including why they
+    // sit before clock rather than after it — identical reasoning, kept in
+    // sync deliberately.
+    private val semanticIndex: MemorySemanticIndex? = null,
+    private val embedder: MemoryEmbedder? = null,
     private val clock: () -> Long = System::currentTimeMillis,
 ) : MemoryProvider {
 
@@ -41,6 +46,8 @@ class InMemoryMemoryProvider(
 
     override suspend fun forget(id: String) {
         synchronized(lock) { items.remove(id) }
+        // Outside the lock — see FileMemoryStore.forget's own comment.
+        semanticIndex?.remove(id)
     }
 
     override suspend fun consolidate(conversationId: String): List<MemoryItem> =
@@ -56,7 +63,7 @@ class InMemoryMemoryProvider(
             // above). If it throws, working memory is left untouched.
             val extracted = extractor.extract(conversationId, working)
 
-            synchronized(lock) {
+            val result = synchronized(lock) {
                 working.forEach { items.remove(it.id) }
                 extracted
                     // See FileMemoryStore's own doc comment on this filter —
@@ -69,7 +76,22 @@ class InMemoryMemoryProvider(
                         stored
                     }
             }
+            // Outside the lock — see FileMemoryStore.consolidate's own comment.
+            semanticIndex?.let { index -> working.forEach { index.remove(it.id) } }
+            result
         }
+
+    /** See [FileMemoryStore.embedPending] — identical reasoning, kept in sync deliberately. */
+    override suspend fun embedPending(limitPerCall: Int) {
+        val index = semanticIndex ?: return
+        val embed = embedder ?: return
+        SemanticRetrieval.embedPending(snapshot(), index, embed, limitPerCall)
+    }
+
+    override suspend fun candidates(query: MemoryQuery): List<MemoryCandidate> {
+        val lexicalHits = search(query)
+        return SemanticRetrieval.candidates(query, lexicalHits, snapshot(), semanticIndex, embedder)
+    }
 
     fun all(): List<MemoryItem> = snapshot()
 }

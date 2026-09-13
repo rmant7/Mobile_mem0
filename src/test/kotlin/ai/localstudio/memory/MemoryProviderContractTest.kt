@@ -29,7 +29,11 @@ import kotlin.test.assertTrue
 abstract class MemoryProviderContractTest {
 
     /** A fresh, empty provider — one call, one test, no state shared between tests. */
-    protected abstract fun provider(extractor: MemoryExtractor = FileMemoryStore.PromoteWorkingMemory): MemoryProvider
+    protected abstract fun provider(
+        extractor: MemoryExtractor = FileMemoryStore.PromoteWorkingMemory,
+        semanticIndex: MemorySemanticIndex? = null,
+        embedder: MemoryEmbedder? = null,
+    ): MemoryProvider
 
     @Test
     fun `remember then search finds it by shared terms`() = runBlocking {
@@ -281,5 +285,103 @@ abstract class MemoryProviderContractTest {
 
         assertEquals(1, a.size)
         assertEquals(1, b.size)
+    }
+
+    // --- semantic retrieval (SEMANTIC_RETRIEVAL_DESIGN.md step 7) ---
+
+    /** Deterministic stand-in for a real model: exact-text lookup, not anything resembling real semantics. */
+    private class FakeEmbedder(
+        private val vectors: Map<String, FloatArray>,
+        override val dimension: Int = 3,
+        override val modelId: String = "fake-embedder",
+    ) : MemoryEmbedder {
+        override suspend fun embed(texts: List<String>): List<FloatArray> = texts.map { vectors[it] ?: FloatArray(dimension) }
+    }
+
+    @Test
+    fun `candidates finds a semantic match that shares no vocabulary with the query`() = runBlocking {
+        val stored = "Пользователь искал место для зимовки; рекомендовано Израиль"
+        val query = "что предлагали кроме Израиля"
+        // Deliberately the same vector for both: this test is about the merge
+        // and rank/score plumbing, not about a real model's notion of
+        // similarity, which FakeEmbedder makes no attempt to approximate.
+        val sharedVector = floatArrayOf(1f, 0f, 0f)
+        val embedder = FakeEmbedder(mapOf(stored to sharedVector, query to sharedVector))
+        val index = InMemorySemanticIndex(embedder.modelId, embedder.dimension)
+        val memory = provider(semanticIndex = index, embedder = embedder)
+        val id = memory.remember(stored, MemoryScope.EPISODIC)
+
+        assertTrue(
+            memory.search(MemoryQuery(query)).isEmpty(),
+            "sanity check: this query really shares no vocabulary with what's stored",
+        )
+        memory.embedPending()
+
+        val candidates = memory.candidates(MemoryQuery(query))
+
+        assertEquals(1, candidates.size)
+        assertEquals(id, candidates.single().item.id)
+        assertEquals(0, candidates.single().semanticRank)
+        assertEquals(null, candidates.single().lexicalRank)
+        assertTrue(candidates.single().semanticScore!! > 0.99f)
+    }
+
+    @Test
+    fun `candidates merges an item found by both retrievers, keeping both ranks`() = runBlocking {
+        val text = "the user prefers dark mode"
+        val vector = floatArrayOf(1f, 0f, 0f)
+        val embedder = FakeEmbedder(mapOf(text to vector, "what theme does the user prefer" to vector))
+        val index = InMemorySemanticIndex(embedder.modelId, embedder.dimension)
+        val memory = provider(semanticIndex = index, embedder = embedder)
+        memory.remember(text, MemoryScope.SEMANTIC)
+        memory.embedPending()
+
+        val candidates = memory.candidates(MemoryQuery("what theme does the user prefer"))
+
+        assertEquals(1, candidates.size, "the same item found by both retrievers must appear once, not twice")
+        val candidate = candidates.single()
+        assertEquals(0, candidate.lexicalRank, "found lexically too — shares real words with the query")
+        assertEquals(0, candidate.semanticRank)
+    }
+
+    @Test
+    fun `embedPending is a harmless no-op without a configured semantic index or embedder`() = runBlocking {
+        provider().embedPending() // must not throw
+    }
+
+    @Test
+    fun `forget removes the vector as well as the record`() = runBlocking {
+        val text = "temporary fact"
+        val vector = floatArrayOf(1f, 0f, 0f)
+        val embedder = FakeEmbedder(mapOf(text to vector))
+        val index = InMemorySemanticIndex(embedder.modelId, embedder.dimension)
+        val memory = provider(semanticIndex = index, embedder = embedder)
+        val id = memory.remember(text, MemoryScope.SEMANTIC)
+        memory.embedPending()
+        assertTrue(index.missing(listOf(id)).isEmpty(), "sanity check: the vector was actually written")
+
+        memory.forget(id)
+
+        assertEquals(listOf(id), index.missing(listOf(id)), "forget() must not leave an orphaned vector behind")
+    }
+
+    @Test
+    fun `consolidate removes the vector of the WORKING item it promotes away`() = runBlocking {
+        val text = "decided to use Kotlin"
+        val vector = floatArrayOf(1f, 0f, 0f)
+        val embedder = FakeEmbedder(mapOf(text to vector))
+        val index = InMemorySemanticIndex(embedder.modelId, embedder.dimension)
+        val memory = provider(semanticIndex = index, embedder = embedder)
+        val workingId = memory.remember(text, MemoryScope.WORKING, metadata = mapOf(FileMemoryStore.CONVERSATION_KEY to "c1"))
+        memory.embedPending()
+        assertTrue(index.missing(listOf(workingId)).isEmpty(), "sanity check: the WORKING item's vector was actually written")
+
+        memory.consolidate("c1")
+
+        assertEquals(
+            listOf(workingId),
+            index.missing(listOf(workingId)),
+            "the WORKING item's own id is gone from the store after consolidation; its vector must not outlive it as an orphan",
+        )
     }
 }

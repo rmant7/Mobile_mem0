@@ -130,4 +130,15 @@ interface MemoryProvider {
         search(query).mapIndexed { index, item ->
             MemoryCandidate(item, lexicalRank = index, semanticRank = null, semanticScore = null)
         }
+
+    /**
+     * Embeds up to [limitPerCall] stored items a backend's own semantic index
+     * doesn't have a vector for yet — see [FileMemoryStore.embedPending]'s
+     * own doc comment for why this exists as an explicit, caller-invoked
+     * operation, never something [remember] triggers itself.
+     *
+     * A no-op default, same reasoning as [candidates]'s own default: a
+     * backend with no semantic index configured has nothing to catch up.
+     */
+    suspend fun embedPending(limitPerCall: Int = 64) {}
 }
