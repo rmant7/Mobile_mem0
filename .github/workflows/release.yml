@@ -48,14 +48,27 @@ jobs:
       - name: Verify the tagged commit builds and passes tests
         run: ./gradlew --no-daemon build
 
-      - name: Create the GitHub Release
+      # Idempotent: creates the release if it doesn't exist yet, otherwise
+      # edits it in place — this workflow has no other way to fix a
+      # release's notes after the fact (there's no separate "edit" trigger).
+      # Notes go through a file, not inline in the shell command: an
+      # inputs.notes value substituted directly into `run:` breaks the
+      # moment it contains a quote, backtick, or (being Markdown) a
+      # multi-line body — exactly what a real set of release notes is.
+      - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ github.event.inputs.notes }}
         run: |
           tag="${{ steps.tag.outputs.tag }}"
-          notes="${{ github.event.inputs.notes }}"
-          if [ -n "$notes" ]; then
-            gh release create "$tag" --title "$tag" --notes "$notes"
+          if [ -n "$NOTES" ]; then
+            printf '%s' "$NOTES" > /tmp/release-notes.md
+            notes_flags=(--notes-file /tmp/release-notes.md)
           else
-            gh release create "$tag" --title "$tag" --generate-notes
+            notes_flags=(--generate-notes)
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$tag" "${notes_flags[@]}"
+          else
+            gh release create "$tag" --title "$tag" "${notes_flags[@]}"
           fi
