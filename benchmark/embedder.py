@@ -22,7 +22,13 @@ POOLING_TYPE_MEAN = 1
 class E5Embedder:
     """Wraps one loaded GGUF context. Not thread-safe — matches llama.cpp's own single-sequence-at-a-time contract."""
 
-    def __init__(self, model_path: str, n_ctx: int = 512, n_threads: int | None = None, verbose: bool = False):
+    # verbose=True by default here, unlike a production runtime: llama.cpp's
+    # own load-time log is the only place the *specific* reason a GGUF fails
+    # to load ever appears (llama-cpp-python's own exception is just "Failed
+    # to load model from file", no detail) — a real failure hit while
+    # building this benchmark (cstr's Base conversion) only became
+    # diagnosable once this log was visible in the notebook's own cell output.
+    def __init__(self, model_path: str, n_ctx: int = 512, n_threads: int | None = None, verbose: bool = True):
         self._llm = Llama(
             model_path=model_path,
             embedding=True,

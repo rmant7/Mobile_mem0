@@ -1,10 +1,22 @@
 """
-Resolves and downloads the actual GGUF file from cstr/multilingual-e5-base-GGUF
-at run time — never a hardcoded filename. Quantized-model repos get
-restructured on a timescale of weeks (files renamed, added, removed); this
-mirrors the same resolve-at-download-time approach
-ai.localstudio.app.models.HuggingFaceResolver (in the AI app repo) uses for
-exactly that reason, just in Python instead of Kotlin.
+Resolves and downloads the actual GGUF file from REPO_ID at run time — never
+a hardcoded filename. Quantized-model repos get restructured on a timescale
+of weeks (files renamed, added, removed); this mirrors the same
+resolve-at-download-time approach ai.localstudio.app.models.HuggingFaceResolver
+(in the AI app repo) uses for exactly that reason, just in Python instead of
+Kotlin.
+
+REPO_ID is groonga/multilingual-e5-base-Q4_K_M-GGUF, not cstr's
+multilingual-e5-base-GGUF: cstr's own multilingual-e5-small-GGUF already
+failed to load on-device with "bert model needs to define token type
+count" (a metadata field missing from that conversion), and cstr's Base
+conversion (multilingual-e5-base-q4_k-imatrix.gguf) then failed the same
+generic "Failed to load model" way here in this benchmark — the same
+failure signature twice from the same uploader is a real signal, not
+noise. groonga's Q4_K_M file is the one this app's own on-device
+ExperimentalEmbeddingsActivity test already loaded successfully (dimension
+768, cosine(similar)=0.897 > cosine(dissimilar)=0.754) — a genuinely
+verified file, not a guess.
 
 Never commits the GGUF anywhere — huggingface_hub's own cache directory
 (~/.cache/huggingface by default, or Colab's ephemeral disk) is where it
@@ -14,7 +26,7 @@ from __future__ import annotations
 
 from huggingface_hub import HfApi, hf_hub_download
 
-REPO_ID = "cstr/multilingual-e5-base-GGUF"
+REPO_ID = "groonga/multilingual-e5-base-Q4_K_M-GGUF"
 
 # Q4_K_M first — the standard quality/size tradeoff for llama.cpp on a
 # laptop or Colab's own (limited, shared) CPU quota; Q4_K_S/plain Q4_K as
