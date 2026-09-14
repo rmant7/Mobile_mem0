@@ -1,4 +1,10 @@
 # Runtime deps for run_benchmark.py / the Colab notebook.
+#
+# If `pip install -r requirements.txt` starts compiling llama-cpp-python from
+# source (a "Building wheel..." step that runs for many minutes — it's
+# building llama.cpp's own C++ via CMake), install a prebuilt CPU wheel
+# instead, then re-run this file for the rest:
+#   pip install --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu llama-cpp-python
 llama-cpp-python>=0.2.90
 huggingface_hub>=0.24
 
