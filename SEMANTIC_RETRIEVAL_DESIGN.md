@@ -1,16 +1,19 @@
 # Semantic retrieval (v0.3) — design
 
-**Status: steps 1–8 below are done, and step 9 has a real first measurement.**
-`MemoryEmbedder`, `MemorySemanticIndex`, `FileSemanticIndex`,
+**Status: steps 1–8 below are done, and step 9 has a real hybrid-sweep
+result.** `MemoryEmbedder`, `MemorySemanticIndex`, `FileSemanticIndex`,
 `MemoryCandidate`, and the per-backend `candidates()` wiring all exist and
 are covered by the shared contract test suite, including
 forget()/consolidate() vector cleanup and a model/dimension mismatch
 degrading to lexical-only rather than to nothing. `semanticScore` reaches
-the consuming app's private ranking layer, at a fusion weight of `0.30` —
-a benchmark-informed starting value (see "Choosing the concrete model"
-below and step 9), not a finally-tuned one: no A/B run against the app's
-own real `ExperimentLogger` data exists yet, only the standalone retrieval
-benchmark's own dataset.
+the consuming app's private ranking layer, at a fusion weight of `0.10` —
+chosen by `benchmark/run_hybrid_sweep.py`'s deterministic decision rule
+(see "Choosing the concrete model" below and step 9), not a guess: it is
+the smallest swept weight that already captures the sweep's entire real
+gain over lexical-only, with every larger weight's additional gain too
+small to clear its own bootstrap noise. Still not the final word: no A/B
+run against the app's own real `ExperimentLogger` data exists yet, only
+this standalone retrieval benchmark's own synthetic dataset.
 
 As of alpha3, `MemoryEmbedder` is split into `embedForStorage`/
 `embedForQuery` rather than one `embed` method — most real embedding models
@@ -371,15 +374,46 @@ possibly lose), low_overlap 0.176→0.471, morphology 0.500→0.950, synonym
 0.200→0.933, paraphrase 0.600→0.867. Average cosine similarity: positive
 matches 0.841, negative (unrelated) 0.753.
 
-This is what set `RankingWeights.semantic` to `0.30` in the consuming
-app's `AppContainer` (see status header above) — a benchmark-informed
-starting value, deliberately still below `RankingWeights.taskRelevance`'s
-0.30 rather than at or above it, since no A/B run against this app's own
-real usage (`ExperimentLogger` data) exists yet. `Capability.EMBEDDING`
-and the existing chat-model download UI were deliberately *not* reused —
-the embedding model has its own small download/verification screen
-(`ExperimentalEmbeddingsActivity`) rather than joining
-`LocalModelSeed`/`LocalModels`, which stays a chat-model-only catalog.
+This is what first set `RankingWeights.semantic` to `0.30` in the consuming
+app's `AppContainer` — a starting value from this measurement alone,
+before a hybrid formula existed to sweep against.
+
+**Verification pass 3 — hybrid-ranking sweep** (`benchmark/run_hybrid_sweep.py`,
+notebook steps 10–13): merges lexical and semantic candidates per query into
+one weighted-sum ranking (`lexical_score·0.45 + semantic_score·w`, the same
+shape as `HeuristicContextRanker` with this benchmark's own two signals),
+sweeping `w = 0.00, 0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50` with a
+deterministic 200-iteration bootstrap per weight. Same 92-query dataset:
+
+| weight | Recall@1 | Recall@5 | Recall@10 | MRR   | MRR std |
+|--------|----------|----------|-----------|-------|---------|
+| 0.00   | 0.500    | 0.620    | 0.674     | 0.565 | 0.047   |
+| 0.10   | 0.663    | 0.913    | 0.924     | 0.775 | 0.035   |
+| 0.20   | 0.663    | 0.924    | 0.924     | 0.781 | 0.034   |
+| 0.25   | 0.663    | 0.924    | 0.924     | 0.781 | 0.034   |
+| 0.30   | 0.663    | 0.924    | 0.924     | 0.781 | 0.034   |
+| 0.35–0.50 | identical to 0.30 — the ranking itself stops changing past this point (a linear weighted sum saturates once one term already dominates every comparison that will ever flip), not a measurement gap. |
+
+`0.00→0.10` is the entire real gain (MRR +0.21, far outside any weight's
+own bootstrap noise); every larger weight's additional gain over `0.10`
+(+0.006 MRR at most) is smaller than that weight's own bootstrap std
+(0.034–0.047) — not distinguishable from noise. No category regresses at
+`0.10` vs lexical-only, identifier included (both 1.000 — this benchmark's
+one category semantic could plausibly have lost, and it still doesn't).
+`recommend.py`'s fixed decision rule — beat lexical, don't hurt
+identifier/exact, prefer the smallest weight whose gain over a smaller
+candidate clears bootstrap noise — returned `RECOMMENDED_SEMANTIC_WEIGHT
+= 0.10` non-ambiguously (the smallest weight capturing the real gain and
+the best-performing weight are the same value here, so there was no
+trade-off to make between "best" and "conservative"). This is what set
+`RankingWeights.semantic` to `0.10` in `AppContainer` (see status header
+above), superseding the earlier `0.30`.
+
+`Capability.EMBEDDING` and the existing chat-model download UI were
+deliberately *not* reused — the embedding model has its own small
+download/verification screen (`ExperimentalEmbeddingsActivity`) rather
+than joining `LocalModelSeed`/`LocalModels`, which stays a chat-model-only
+catalog.
 
 ## Order of work
 
@@ -400,28 +434,29 @@ decisions come before anything depends on them:
 7. **Semantic candidate retrieval wired into `candidates()`.** ✅
 8. **Fusion and ranking** — in the private layer: `semanticScore` reaches
    `HeuristicContextRanker` behind `RankingWeights.semantic`. ✅ plumbing;
-   ✅ **weight is `0.30`**, a benchmark-informed starting value — see step 9.
+   ✅ **weight is `0.10`**, the hybrid sweep's own non-ambiguous
+   recommendation — see step 9.
 9. **Benchmark and decide** — `ExperimentLogger`/`ExperimentRecord` exist to
    compare modes on real queries; the standalone
    `benchmark/e5_base_benchmark.ipynb` provided the first real measurement
-   (see "Choosing the concrete model" above) and picked `0.30` as a starting
-   point. ✅ The hybrid-ranking sweep itself now exists
+   (see "Choosing the concrete model" above) and initially picked `0.30` as
+   a starting point. ✅ The hybrid-ranking sweep
    (`benchmark/hybrid.py`, `benchmark/bootstrap.py`, `benchmark/recommend.py`,
    `benchmark/run_hybrid_sweep.py`, notebook steps 10–13, all unit tested on
-   synthetic data in `benchmark/tests/test_hybrid.py`): for each of
-   `0.00, 0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50` it merges lexical and
-   semantic candidates into one hybrid ranking, reports Recall@1/5/10/MRR and
-   the category breakdown, runs a deterministic bootstrap resample for
-   stability, and applies a fixed decision rule to print one
-   `RECOMMENDED_SEMANTIC_WEIGHT` (or explicitly fall back to `0.20` if the
-   result is ambiguous, never guess between `0.30`/`0.35`). ⏳ **Not the
-   final word**: this only becomes a real recommendation once the sweep is
-   actually run against real embeddings in Colab; an eventual A/B run
-   against this app's own real `ExperimentLogger` data is also still open —
-   this step stays open until one of those produces a value confident
-   enough to call tuned rather than informed.
+   synthetic data in `benchmark/tests/test_hybrid.py`) has now actually run
+   against real embeddings in Colab: for each of
+   `0.00, 0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50` it merged lexical and
+   semantic candidates into one hybrid ranking, reported Recall@1/5/10/MRR
+   and the category breakdown, ran a deterministic bootstrap resample for
+   stability, and its fixed decision rule returned
+   `RECOMMENDED_SEMANTIC_WEIGHT = 0.10` non-ambiguously (see "Choosing the
+   concrete model" above for the full sweep table and reasoning) — now live
+   in `AppContainer`. ⏳ **Still open**: an eventual A/B run against this
+   app's own real `ExperimentLogger` data — a synthetic-dataset sweep,
+   however non-ambiguous, is not the same measurement as real usage. This
+   step stays open until that exists.
 
 Steps 1–5 needed no model, no NDK, and no downloads, and were where the
-irreversible API decisions lived — all landed in v0.3.0-alpha1. Steps 6–8
-are now done against a real, verified model; step 9 has a real first
-answer but is not finished.
+irreversible API decisions lived — all landed in v0.3.0-alpha1. Steps 6–9
+are now done against a real, verified model and a real hybrid-sweep result;
+only the real-usage A/B remains.
