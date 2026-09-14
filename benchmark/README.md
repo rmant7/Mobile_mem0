@@ -55,7 +55,7 @@ benchmark/
    `metrics.py`, and `run_benchmark.py` all in the Colab working directory.
 2. Open `e5_base_benchmark.ipynb` and run every cell top to bottom. It
    installs `llama-cpp-python`/`huggingface_hub`, downloads the GGUF
-   straight from `cstr/multilingual-e5-base-GGUF` (never from this repo —
+   straight from `groonga/multilingual-e5-base-Q4_K_M-GGUF` (never from this repo —
    nothing here commits a GGUF anywhere), builds embeddings, runs both
    retrievers, and prints/saves the same tables `run_benchmark.py` does.
 
