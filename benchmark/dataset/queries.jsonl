@@ -1,0 +1,102 @@
+{"id": "q-diet-00", "text": "Ест ли пользователь мясо?", "category": "exact", "ground_truth_ids": ["mem-diet-00"]}
+{"id": "q-diet-01", "text": "Можно ли ему есть блюдо с орехами?", "category": "morphology", "ground_truth_ids": ["mem-diet-01"]}
+{"id": "q-diet-02", "text": "Он употребляет мясные продукты?", "category": "synonym", "ground_truth_ids": ["mem-diet-00"]}
+{"id": "q-diet-03", "text": "Расскажи, какого рациона питания придерживается пользователь.", "category": "paraphrase", "ground_truth_ids": ["mem-diet-00"]}
+{"id": "q-diet-04", "text": "Что ему стоит выбрать в стейк-хаусе?", "category": "low_overlap", "ground_truth_ids": ["mem-diet-00"]}
+{"id": "q-travel-00", "text": "Какой у меня код брони отеля RZ-88214?", "category": "identifier", "ground_truth_ids": ["mem-travel-00"]}
+{"id": "q-travel-01", "text": "Каким рейсом полетит пользователь в Стамбул?", "category": "morphology", "ground_truth_ids": ["mem-travel-04"]}
+{"id": "q-travel-02", "text": "Он летает самолётами или ездит поездами?", "category": "synonym", "ground_truth_ids": ["mem-travel-01"]}
+{"id": "q-travel-03", "text": "До какого года действительна виза пользователя в Японию?", "category": "paraphrase", "ground_truth_ids": ["mem-travel-02"]}
+{"id": "q-travel-04", "text": "Понравится ли ему сетевой отель с конвейерным сервисом?", "category": "low_overlap", "ground_truth_ids": ["mem-travel-03"]}
+{"id": "q-work-00", "text": "Кем работает пользователь?", "category": "exact", "ground_truth_ids": ["mem-work-00"]}
+{"id": "q-work-01", "text": "На каком языке написан его проект?", "category": "morphology", "ground_truth_ids": ["mem-work-01"]}
+{"id": "q-work-02", "text": "Он трудится из дома или ходит в офис?", "category": "synonym", "ground_truth_ids": ["mem-work-03"]}
+{"id": "q-work-03", "text": "Когда у него горит срок сдачи релиза?", "category": "paraphrase", "ground_truth_ids": ["mem-work-02"]}
+{"id": "q-work-04", "text": "Кому он отчитывается по работе?", "category": "low_overlap", "ground_truth_ids": ["mem-work-04"]}
+{"id": "q-family-00", "text": "В каком городе живут его родители?", "category": "morphology", "ground_truth_ids": ["mem-family-01"]}
+{"id": "q-family-01", "text": "Сколько у него ребят — сыновей и дочерей?", "category": "synonym", "ground_truth_ids": ["mem-family-02"]}
+{"id": "q-family-02", "text": "Кем по профессии работает супруга пользователя?", "category": "paraphrase", "ground_truth_ids": ["mem-family-03"]}
+{"id": "q-family-03", "text": "В какое время года он ездит к родителям в гости?", "category": "low_overlap", "ground_truth_ids": ["mem-family-04"]}
+{"id": "q-pets-00", "text": "Как зовут кота пользователя?", "category": "exact", "ground_truth_ids": ["mem-pets-00"]}
+{"id": "q-pets-01", "text": "Какой корм плохо переносится котом?", "category": "morphology", "ground_truth_ids": ["mem-pets-01"]}
+{"id": "q-pets-02", "text": "Он часто возит питомца к врачу-животному?", "category": "synonym", "ground_truth_ids": ["mem-pets-02"]}
+{"id": "q-pets-03", "text": "Готов ли пользователь взять кота с собой в поездку?", "category": "low_overlap", "ground_truth_ids": ["mem-pets-03"]}
+{"id": "q-health-00", "text": "Какие витамины ему прописали?", "category": "morphology", "ground_truth_ids": ["mem-health-01"]}
+{"id": "q-health-01", "text": "Сколько раз в неделю он тренируется бегом?", "category": "synonym", "ground_truth_ids": ["mem-health-02"]}
+{"id": "q-health-02", "text": "Расскажи о травме головы, которая была у пользователя.", "category": "paraphrase", "ground_truth_ids": ["mem-health-03"]}
+{"id": "q-health-03", "text": "Хватает ли ему отдыха по будням?", "category": "low_overlap", "ground_truth_ids": ["mem-health-04"]}
+{"id": "q-tech-00", "text": "Какой операционной системой пользуется его ноутбук?", "category": "morphology", "ground_truth_ids": ["mem-tech-02"]}
+{"id": "q-tech-01", "text": "Где он держит свои пароли?", "category": "synonym", "ground_truth_ids": ["mem-tech-03"]}
+{"id": "q-tech-02", "text": "Использует ли он защищённое соединение для работы?", "category": "paraphrase", "ground_truth_ids": ["mem-tech-01"]}
+{"id": "q-tech-03", "text": "Любит ли он тактильный отклик при печати?", "category": "low_overlap", "ground_truth_ids": ["mem-tech-04"]}
+{"id": "q-wifi-00", "text": "Какой пароль от Wi-Fi Sunflower-92X?", "category": "identifier", "ground_truth_ids": ["mem-wifi-00"]}
+{"id": "q-wifi-01", "text": "Где расположен роутер в квартире?", "category": "morphology", "ground_truth_ids": ["mem-wifi-01"]}
+{"id": "q-wifi-02", "text": "Что он делает, когда пропадает связь?", "category": "paraphrase", "ground_truth_ids": ["mem-wifi-02"]}
+{"id": "q-finance-00", "text": "Какой номер страхового полиса INS-774521?", "category": "identifier", "ground_truth_ids": ["mem-finance-00"]}
+{"id": "q-finance-01", "text": "На что он откладывает деньги для покупки жилья?", "category": "synonym", "ground_truth_ids": ["mem-finance-01"]}
+{"id": "q-finance-02", "text": "Как часто списывается плата за подписку?", "category": "morphology", "ground_truth_ids": ["mem-finance-02"]}
+{"id": "q-finance-03", "text": "Есть ли у него сбережения специально для путешествий?", "category": "low_overlap", "ground_truth_ids": ["mem-finance-03"]}
+{"id": "q-car-00", "text": "Какой госномер А123ВС777 у машины пользователя?", "category": "identifier", "ground_truth_ids": ["mem-car-00"]}
+{"id": "q-car-01", "text": "В какое время года он проходит техобслуживание автомобиля?", "category": "paraphrase", "ground_truth_ids": ["mem-car-01"]}
+{"id": "q-car-02", "text": "Где он оставляет машину рядом с офисом?", "category": "synonym", "ground_truth_ids": ["mem-car-02"]}
+{"id": "q-hobby_music-00", "text": "Какую музыку любит слушать пользователь вечером?", "category": "exact", "ground_truth_ids": ["mem-hobby_music-00"]}
+{"id": "q-hobby_music-01", "text": "На каком инструменте он учится играть?", "category": "morphology", "ground_truth_ids": ["mem-hobby_music-01"]}
+{"id": "q-hobby_music-02", "text": "Какая у него любимая музыкальная группа?", "category": "paraphrase", "ground_truth_ids": ["mem-hobby_music-02"]}
+{"id": "q-hobby_music-03", "text": "Стоит ли включать ему на вечеринке тяжёлый метал?", "category": "low_overlap", "ground_truth_ids": ["mem-hobby_music-00"]}
+{"id": "q-hobby_books-00", "text": "Какую книгу сейчас читает пользователь?", "category": "exact", "ground_truth_ids": ["mem-hobby_books-00"]}
+{"id": "q-hobby_books-01", "text": "Читает ли он книги с экрана или в печатном виде?", "category": "synonym", "ground_truth_ids": ["mem-hobby_books-01"]}
+{"id": "q-hobby_books-02", "text": "Следит ли он за тем, сколько книг прочитал?", "category": "paraphrase", "ground_truth_ids": ["mem-hobby_books-02"]}
+{"id": "q-language-00", "text": "Какой язык учит пользователь?", "category": "exact", "ground_truth_ids": ["mem-language-00"]}
+{"id": "q-language-01", "text": "Сколько раз в неделю у него занятия по языку?", "category": "morphology", "ground_truth_ids": ["mem-language-00"]}
+{"id": "q-language-02", "text": "Какой экзамен он планирует сдать?", "category": "synonym", "ground_truth_ids": ["mem-language-01"]}
+{"id": "q-language-03", "text": "Как он тренирует восприятие речи на слух?", "category": "low_overlap", "ground_truth_ids": ["mem-language-02"]}
+{"id": "q-gym-00", "text": "По каким дням пользователь ходит в спортзал?", "category": "exact", "ground_truth_ids": ["mem-gym-00"]}
+{"id": "q-gym-01", "text": "Как зовут тренера пользователя?", "category": "morphology", "ground_truth_ids": ["mem-gym-01"]}
+{"id": "q-gym-02", "text": "Какую цель он преследует в тренировках?", "category": "paraphrase", "ground_truth_ids": ["mem-gym-02"]}
+{"id": "q-home-00", "text": "Какой код домофона 45К19 в подъезде?", "category": "identifier", "ground_truth_ids": ["mem-home-00"]}
+{"id": "q-home-01", "text": "Есть ли в доме пользователя лифт?", "category": "synonym", "ground_truth_ids": ["mem-home-01"]}
+{"id": "q-home-02", "text": "Когда он собирается сменить жильё?", "category": "paraphrase", "ground_truth_ids": ["mem-home-02"]}
+{"id": "q-delivery-00", "text": "Какой трек-номер TRK-5590231RU у посылки?", "category": "identifier", "ground_truth_ids": ["mem-delivery-00"]}
+{"id": "q-delivery-01", "text": "В какой день недели ему привозят продукты?", "category": "morphology", "ground_truth_ids": ["mem-delivery-01"]}
+{"id": "q-delivery-02", "text": "Должен ли курьер звонить в дверь или просто оставить заказ?", "category": "low_overlap", "ground_truth_ids": ["mem-delivery-02"]}
+{"id": "q-garden-00", "text": "Что выращивает пользователь на балконе?", "category": "exact", "ground_truth_ids": ["mem-garden-00"]}
+{"id": "q-garden-01", "text": "Как часто он поливает свои растения?", "category": "morphology", "ground_truth_ids": ["mem-garden-01"]}
+{"id": "q-garden-02", "text": "Часто ли цветёт орхидея пользователя?", "category": "paraphrase", "ground_truth_ids": ["mem-garden-02"]}
+{"id": "q-gaming-00", "text": "В какую игру играет пользователь по вечерам?", "category": "exact", "ground_truth_ids": ["mem-gaming-00"]}
+{"id": "q-gaming-01", "text": "Какая игровая приставка есть у пользователя?", "category": "synonym", "ground_truth_ids": ["mem-gaming-01"]}
+{"id": "q-gaming-02", "text": "С кем он играет в команде?", "category": "low_overlap", "ground_truth_ids": ["mem-gaming-02"]}
+{"id": "q-eco-00", "text": "Сортирует ли пользователь бытовые отходы?", "category": "exact", "ground_truth_ids": ["mem-eco-00"]}
+{"id": "q-eco-01", "text": "На чём он добирается до офиса вместо автомобиля?", "category": "morphology", "ground_truth_ids": ["mem-eco-01"]}
+{"id": "q-eco-02", "text": "Заботится ли он об экологии в быту?", "category": "low_overlap", "ground_truth_ids": ["mem-eco-02"]}
+{"id": "q-sleep-00", "text": "Во сколько пользователь обычно ложится спать?", "category": "exact", "ground_truth_ids": ["mem-sleep-00"]}
+{"id": "q-sleep-01", "text": "Чем он затыкает уши, чтобы спать крепче?", "category": "synonym", "ground_truth_ids": ["mem-sleep-01"]}
+{"id": "q-sleep-02", "text": "Нужен ли ему будильник в субботу и воскресенье?", "category": "paraphrase", "ground_truth_ids": ["mem-sleep-02"]}
+{"id": "q-cooking-00", "text": "Чей рецепт борща использует пользователь?", "category": "exact", "ground_truth_ids": ["mem-cooking-00"]}
+{"id": "q-cooking-01", "text": "Нравится ли ему еда с перцем чили?", "category": "low_overlap", "ground_truth_ids": ["mem-cooking-01"]}
+{"id": "q-cooking-02", "text": "Что он выпекает по выходным?", "category": "morphology", "ground_truth_ids": ["mem-cooking-02"]}
+{"id": "q-coffee-00", "text": "Какой кофе пользователь берёт по утрам?", "category": "exact", "ground_truth_ids": ["mem-coffee-00"]}
+{"id": "q-coffee-01", "text": "Пьёт ли он кофе поздно вечером?", "category": "synonym", "ground_truth_ids": ["mem-coffee-02"]}
+{"id": "q-photography-00", "text": "Какая камера есть у пользователя?", "category": "exact", "ground_truth_ids": ["mem-photography-00"]}
+{"id": "q-photography-01", "text": "Где он предпочитает сохранять снимки после съёмки?", "category": "low_overlap", "ground_truth_ids": ["mem-photography-02"]}
+{"id": "q-cycling-00", "text": "Какой у пользователя велосипед?", "category": "exact", "ground_truth_ids": ["mem-cycling-00"]}
+{"id": "q-cycling-01", "text": "К какому соревнованию он тренируется?", "category": "morphology", "ground_truth_ids": ["mem-cycling-02"]}
+{"id": "q-meditation-00", "text": "Сколько времени пользователь уделяет медитации утром?", "category": "morphology", "ground_truth_ids": ["mem-meditation-00"]}
+{"id": "q-meditation-01", "text": "Помогает ли ему что-то справляться со стрессом перед сном?", "category": "low_overlap", "ground_truth_ids": ["mem-meditation-02"]}
+{"id": "q-podcasts-00", "text": "Что слушает пользователь по пути на работу?", "category": "exact", "ground_truth_ids": ["mem-podcasts-00"]}
+{"id": "q-podcasts-01", "text": "На какой скорости воспроизведения он слушает выпуски?", "category": "morphology", "ground_truth_ids": ["mem-podcasts-02"]}
+{"id": "q-volunteering-00", "text": "Где волонтёрит пользователь раз в месяц?", "category": "exact", "ground_truth_ids": ["mem-volunteering-00"]}
+{"id": "q-volunteering-01", "text": "Помогает ли он материально каким-то организациям?", "category": "low_overlap", "ground_truth_ids": ["mem-volunteering-01"]}
+{"id": "q-shopping-00", "text": "Где пользователь обычно покупает одежду?", "category": "exact", "ground_truth_ids": ["mem-shopping-00"]}
+{"id": "q-shopping-01", "text": "Легко ли ему удержаться от спонтанных покупок онлайн?", "category": "paraphrase", "ground_truth_ids": ["mem-shopping-02"]}
+{"id": "q-locker-00", "text": "Какой код 3319 от шкафчика в зале?", "category": "identifier", "ground_truth_ids": ["mem-locker-00"]}
+{"id": "q-locker-01", "text": "Что лежит у него запасное в шкафчике?", "category": "morphology", "ground_truth_ids": ["mem-locker-01"]}
+{"id": "q-negative-00", "text": "Какая столица у Австралии?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-01", "text": "Сколько будет 15 умножить на 12?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-02", "text": "Пользователь занимается подводным плаванием с аквалангом?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-03", "text": "Есть ли у пользователя лицензия пилота?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-04", "text": "Какой у него любимый вид борьбы сумо?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-05", "text": "Собирает ли пользователь марки?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-06", "text": "Играет ли пользователь на волынке?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-07", "text": "Есть ли у него ферма лам?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-08", "text": "Изучает ли пользователь древнегреческий язык?", "category": "negative", "ground_truth_ids": []}
+{"id": "q-negative-09", "text": "Разводит ли пользователь пчёл на даче?", "category": "negative", "ground_truth_ids": []}

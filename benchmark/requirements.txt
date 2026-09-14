@@ -1,0 +1,6 @@
+# Runtime deps for run_benchmark.py / the Colab notebook.
+llama-cpp-python>=0.2.90
+huggingface_hub>=0.24
+
+# Only needed to run benchmark/tests/ — not required in Colab.
+pytest>=7.4
