@@ -1,12 +1,16 @@
 # Semantic retrieval (v0.3) — design
 
-**Status: v0.3.0-alpha3 implements steps 1–8 below.** `MemoryEmbedder`,
-`MemorySemanticIndex`, `FileSemanticIndex`, `MemoryCandidate`, and the
-per-backend `candidates()` wiring all exist and are covered by the shared
-contract test suite, including forget()/consolidate() vector cleanup and a
-model/dimension mismatch degrading to lexical-only rather than to nothing.
-`semanticScore` reaches the consuming app's private ranking layer, at a
-fusion weight of `0.0` — deliberately unconsidered, not a guess (see step 9).
+**Status: steps 1–8 below are done, and step 9 has a real first measurement.**
+`MemoryEmbedder`, `MemorySemanticIndex`, `FileSemanticIndex`,
+`MemoryCandidate`, and the per-backend `candidates()` wiring all exist and
+are covered by the shared contract test suite, including
+forget()/consolidate() vector cleanup and a model/dimension mismatch
+degrading to lexical-only rather than to nothing. `semanticScore` reaches
+the consuming app's private ranking layer, at a fusion weight of `0.30` —
+a benchmark-informed starting value (see "Choosing the concrete model"
+below and step 9), not a finally-tuned one: no A/B run against the app's
+own real `ExperimentLogger` data exists yet, only the standalone retrieval
+benchmark's own dataset.
 
 As of alpha3, `MemoryEmbedder` is split into `embedForStorage`/
 `embedForQuery` rather than one `embed` method — most real embedding models
@@ -19,20 +23,22 @@ required `pooling` parameter (no default) — a wrong pooling choice for a
 given model, like a wrong prefix, does not error, it silently produces
 plausible-looking but degraded vectors.
 
-**No concrete embedding model is chosen or downloadable yet, on purpose.**
-Every abstraction here is built and tested against a fake, deterministic
-`MemoryEmbedder` — nothing in this repo, or in the consuming app's build,
-references a real Hugging Face repository, GGUF filename, or model id.
-Candidate repos have since been identified externally (not verified from
-inside this environment) — see the consuming app's own
-`ExperimentalEmbeddingModels.kt`, deliberately kept out of any production
-code path — but none has been loaded, embedded with, or measured yet. That
-verification needs real network and device access this repository was
-written without, and must not be guessed at from training-data familiarity
-with model names that may have been renamed, requantized, or taken down
-since. See "Choosing the concrete model" near the end of this document for
-exactly what it still needs to cover before a `LocalModelSeed` entry
-references one.
+**A concrete embedding model is now chosen, verified, and loaded
+automatically: `multilingual-e5-base` (`groonga/multilingual-e5-base-Q4_K_M-GGUF`,
+768 dimensions, mean pooling, `"query: "`/`"passage: "` prefixes).** This
+repo's own abstractions are still built and tested against a fake,
+deterministic `MemoryEmbedder` — that hasn't changed — but the consuming
+app's `AppContainer` now downloads this exact GGUF and loads it through
+`LlamaCppMemoryEmbedder` automatically, off the main thread, the first time
+memory is enabled. See "Choosing the concrete model" below for the
+verification history (an on-device dimension/cosine check, then a
+standalone Python retrieval benchmark) and for the one candidate that was
+tried and rejected (`cstr/multilingual-e5-small-GGUF`: fails to load with
+`bert model needs to define token type count`, a metadata defect in that
+specific conversion — not something this app's own code can work around).
+Nothing in this repository itself references a real Hugging Face
+repository, GGUF filename, or model id; that stays entirely the consuming
+app's concern, per the boundary this document already draws.
 
 This document otherwise exists to be argued with *before* any of the rest of
 it is built, because v0.3 touches five things at once — the open-source/
@@ -310,56 +316,70 @@ so every backend proves them rather than each being trusted:
 
 ## Choosing the concrete model
 
-Deliberately not done yet, and not a guess this document or its
-implementation should ship ahead of. Whoever picks up this step needs to
-actually verify — with real network and, eventually, real device or
-emulator access, neither of which this design work had — at least:
+Done, in two verification passes — recorded here rather than left only in
+commit messages, since this section's whole point was to say what "done"
+would actually require.
 
-- **The model exists, right now, as a GGUF, at the exact filename used.**
-  Candidate repos (`cstr/multilingual-e5-small-GGUF` at `IQ4_XS`,
-  `groonga/multilingual-e5-base-Q4_K_M-GGUF` at `Q4_K_M`, and two more —
-  see the consuming app's `ExperimentalEmbeddingModels.kt`) were identified
-  externally, not from inside this environment or verified by fetching
-  their listings — confirm each is still reachable (not renamed, not taken
-  down, not gated behind a license click-through this app's plain download
-  can't satisfy — see `LocalModelSeed.repoIds`'s own doc comment on why
-  gated official repos need a community mirror listed first) and get the
-  exact current file name directly from the repo, not from this document.
-- **It is actually multilingual and actually small enough.** Confirm
-  parameter count, output dimension, and quantized file size directly from
-  that listing — not from a model name's family resemblance to one this
-  document guessed might fit.
-- **It embeds correctly through this repo's own `nativeEmbed` path.** The
-  consuming app now has a manual, on-device harness for exactly this —
-  `ExperimentalEmbeddingModelTest` (androidTest, skipped rather than run
-  when no model file has been placed for it) — that loads a candidate,
-  embeds a few known sentence pairs, and checks near-duplicates score
-  higher than unrelated ones. The JNI itself has been checked against
-  llama.cpp's own API by reading its source, never by running it.
-- **The pooling mode is the right one for this specific model.**
-  `nativeLoadEmbeddingModel` now takes pooling as a required parameter
-  (`EmbeddingPooling.MEAN`/`CLS`/`LAST`) rather than hardcoding mean
-  pooling — e5-family models are trained for mean pooling, but this must
-  still be confirmed per model, not assumed from family resemblance. A
-  wrong choice silently produces *usable-looking but wrong* vectors rather
-  than an error — exactly the failure mode hardest to notice without
-  checking a known-similar/known-dissimilar pair by hand, which is what
-  `ExperimentalEmbeddingModelTest` exists to do.
-- **Query/passage prefixes match what the model was actually trained on.**
-  `MemoryEmbedder.embedForQuery`/`embedForStorage` (and
-  `LlamaCppMemoryEmbedder`'s `queryPrefix`/`passagePrefix` parameters) exist
-  for exactly this — e5's own convention is `"query: "`/`"passage: "` — but
-  the exact strings still need confirming from each candidate's own model
-  card, not assumed identical across the whole e5 family or copied from one
-  candidate to the next without checking.
-- **`Capability.EMBEDDING` and the existing model-download UI.** Whether the
-  memory embedder reuses the same `Capability`/`LocalModelSeed` machinery
-  the document-RAG path already declares, or needs its own — worth deciding
-  once a real model is in hand, not before.
+**Candidates tried:**
 
-Only once these are confirmed does a `LocalModelSeed` entry, a
-`LlamaCppMemoryEmbedder` construction site in `AppContainer`, and a non-zero
-`RankingWeights.semantic` belong in either repo.
+- `cstr/multilingual-e5-small-GGUF` (`IQ4_XS`) — **rejected.** Fails to
+  load on-device (`ExperimentalEmbeddingsActivity`'s Test button) with
+  `llama_model_load: error loading model: bert model needs to define token
+  type count` — a metadata field missing from this specific conversion.
+  Not a pooling or prefix problem, not fixable from this app's own code.
+  Kept in `ExperimentalEmbeddingModels.kt` as a record of what was tried,
+  explicitly marked not to retry as-is.
+- `cstr/multilingual-e5-base-GGUF` (`Q4_K`, `-imatrix` variant) — also
+  **rejected**, for the same reason: fails to load (this time surfaced via
+  `llama-cpp-python` in the standalone Colab benchmark below) with the
+  same generic "failed to load model" signature. Two failures from the
+  same uploader's conversions was treated as a real signal, not
+  re-guessed at a third time.
+- `groonga/multilingual-e5-base-Q4_K_M-GGUF` (`Q4_K_M`) — **chosen.**
+  278M parameters, 768 dimensions, mean pooling, XLM-R base architecture.
+
+**Verification pass 1 — on-device sanity check**
+(`ExperimentalEmbeddingModelTest` / `ExperimentalEmbeddingsActivity`'s Test
+button): loaded successfully, dimension reported as 768 (read from the
+model itself via `nativeEmbeddingDimension`, never assumed), L2 norm ≈ 1.0,
+`cosine(query, similar passage) = 0.897 > cosine(query, dissimilar passage)
+= 0.754`. Pooling confirmed as `EmbeddingPooling.MEAN`, prefixes confirmed
+as e5's own `"query: "`/`"passage: "` convention — both exactly as assumed,
+but confirmed by a passing test against a real loaded model, not inherited
+from family resemblance.
+
+**Verification pass 2 — standalone retrieval benchmark**
+(`benchmark/e5_base_benchmark.ipynb`, `benchmark/run_benchmark.py` — runs
+on Google Colab's free CPU tier via `llama-cpp-python`, no Android/JNI, no
+Firestore, downloads the GGUF itself and never commits it to this repo).
+105 memories / 102 queries across seven categories (`exact`, `morphology`,
+`synonym`, `paraphrase`, `low_overlap`, `identifier`, `negative`), lexical
+retrieval scored by a direct Python port of this repo's own
+`MemoryRanking.tokenize()`/`overlap()`, semantic scored by cosine
+similarity — never a threshold, only relative ranking, the same way
+`HeuristicContextRanker` itself works. Result, 92 queries with ground
+truth:
+
+|          | Recall@1 | Recall@5 | Recall@10 | MRR   |
+|----------|----------|----------|-----------|-------|
+| Lexical  | 0.500    | 0.598    | 0.620     | 0.543 |
+| Semantic | 0.848    | 0.946    | 0.946     | 0.892 |
+
+By category (Recall@1, lexical → semantic): exact 0.778→0.944, identifier
+1.000→1.000 (tied, not worse — the one category semantic was expected to
+possibly lose), low_overlap 0.176→0.471, morphology 0.500→0.950, synonym
+0.200→0.933, paraphrase 0.600→0.867. Average cosine similarity: positive
+matches 0.841, negative (unrelated) 0.753.
+
+This is what set `RankingWeights.semantic` to `0.30` in the consuming
+app's `AppContainer` (see status header above) — a benchmark-informed
+starting value, deliberately still below `RankingWeights.taskRelevance`'s
+0.30 rather than at or above it, since no A/B run against this app's own
+real usage (`ExperimentLogger` data) exists yet. `Capability.EMBEDDING`
+and the existing chat-model download UI were deliberately *not* reused —
+the embedding model has its own small download/verification screen
+(`ExperimentalEmbeddingsActivity`) rather than joining
+`LocalModelSeed`/`LocalModels`, which stays a chat-model-only catalog.
 
 ## Order of work
 
@@ -375,18 +395,33 @@ decisions come before anything depends on them:
    embedder. No real model involved, fully testable on the JVM. ✅
 6. **JNI entry point**, in the consuming app — `nativeLoadEmbeddingModel`/
    `nativeEmbed`, checked against llama.cpp's own API by reading its source
-   at the pinned commit. ✅ code exists; ⏳ **unverified against any real
-   model** — see "Choosing the concrete model" above, which is the actual
-   remaining half of this step.
+   at the pinned commit. ✅ code exists; ✅ **verified against a real model**
+   — see "Choosing the concrete model" above.
 7. **Semantic candidate retrieval wired into `candidates()`.** ✅
 8. **Fusion and ranking** — in the private layer: `semanticScore` reaches
    `HeuristicContextRanker` behind `RankingWeights.semantic`. ✅ plumbing;
-   ⏳ **weight is 0.0** — see step 9.
-9. **Benchmark and decide** — `ExperimentLogger`/`ExperimentRecord` already
-   exist to compare modes on real queries. Which fusion, and what weights, is
-   a measurement, not a guess. **Blocked on a real model** (step 6's
-   remaining half) to have anything real to measure.
+   ✅ **weight is `0.30`**, a benchmark-informed starting value — see step 9.
+9. **Benchmark and decide** — `ExperimentLogger`/`ExperimentRecord` exist to
+   compare modes on real queries; the standalone
+   `benchmark/e5_base_benchmark.ipynb` provided the first real measurement
+   (see "Choosing the concrete model" above) and picked `0.30` as a starting
+   point. ✅ The hybrid-ranking sweep itself now exists
+   (`benchmark/hybrid.py`, `benchmark/bootstrap.py`, `benchmark/recommend.py`,
+   `benchmark/run_hybrid_sweep.py`, notebook steps 10–13, all unit tested on
+   synthetic data in `benchmark/tests/test_hybrid.py`): for each of
+   `0.00, 0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50` it merges lexical and
+   semantic candidates into one hybrid ranking, reports Recall@1/5/10/MRR and
+   the category breakdown, runs a deterministic bootstrap resample for
+   stability, and applies a fixed decision rule to print one
+   `RECOMMENDED_SEMANTIC_WEIGHT` (or explicitly fall back to `0.20` if the
+   result is ambiguous, never guess between `0.30`/`0.35`). ⏳ **Not the
+   final word**: this only becomes a real recommendation once the sweep is
+   actually run against real embeddings in Colab; an eventual A/B run
+   against this app's own real `ExperimentLogger` data is also still open —
+   this step stays open until one of those produces a value confident
+   enough to call tuned rather than informed.
 
 Steps 1–5 needed no model, no NDK, and no downloads, and were where the
-irreversible API decisions lived — all landed in v0.3.0-alpha1. Everything
-from here forward is blocked on a verified, concrete embedding model.
+irreversible API decisions lived — all landed in v0.3.0-alpha1. Steps 6–8
+are now done against a real, verified model; step 9 has a real first
+answer but is not finished.

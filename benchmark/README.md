@@ -29,6 +29,20 @@ negative` — see `dataset/topics.py`'s own doc comment for what each one is
 testing. `low_overlap` is the category that most directly answers "is
 semantic retrieval adding anything lexical search can't already do."
 
+A third retriever, **hybrid**, extends this with `run_hybrid_sweep.py`: for
+every query it merges lexical hits and the top semantic candidates
+(deduplicated) and ranks by `lexical_score * LEXICAL_WEIGHT +
+semantic_score * semantic_weight` — the same weighted-sum shape as
+`ai.localstudio.commercialmemory.HeuristicContextRanker`, but with only
+this benchmark's two available signals. It sweeps semantic weight across
+`0.00, 0.10, 0.20, 0.25, 0.30, 0.35, 0.40, 0.50` (every other production
+weight held fixed), reports Recall@1/5/10/MRR and the category breakdown
+for each weight, runs a deterministic bootstrap resample per weight to
+report how stable that weight's MRR/Recall@1 actually are, and applies a
+fixed decision rule (`recommend.py`) to print a single
+`RECOMMENDED_SEMANTIC_WEIGHT` — this is the tool that produces the number
+that goes into `AppContainer.SEMANTIC_RANKING_WEIGHT`.
+
 ## Files
 
 ```
@@ -42,10 +56,15 @@ benchmark/
   embedder.py          GGUF embedding via llama-cpp-python
   download_model.py    resolves + downloads the GGUF from Hugging Face
   metrics.py           Recall@k, MRR, cosine similarity, aggregation
-  run_benchmark.py     entry point — run this
+  hybrid.py            merges lexical + semantic candidates into one weighted-sum ranking
+  bootstrap.py         deterministic bootstrap resampling (stability of MRR/Recall@1)
+  recommend.py         fixed decision rule: sweep results -> RECOMMENDED_SEMANTIC_WEIGHT
+  run_benchmark.py     entry point — Part A, lexical vs. semantic (base)
+  run_hybrid_sweep.py  entry point — Part B/C, hybrid weight sweep + recommendation
   e5_base_benchmark.ipynb   the same steps, as a Colab notebook
   tests/
-    test_benchmark.py  unit tests — no GGUF download needed
+    test_benchmark.py  unit tests for dataset/lexical/metrics/embedder — no GGUF download needed
+    test_hybrid.py     unit tests for hybrid/bootstrap/recommend — no GGUF download needed
 ```
 
 ## Running in Google Colab (recommended)
@@ -58,6 +77,9 @@ benchmark/
    straight from `groonga/multilingual-e5-base-Q4_K_M-GGUF` (never from this repo —
    nothing here commits a GGUF anywhere), builds embeddings, runs both
    retrievers, and prints/saves the same tables `run_benchmark.py` does.
+   The final cells then run `run_hybrid_sweep.py` (Part B/C) using the
+   already-downloaded model file, printing the full weight sweep, category
+   breakdowns, and the `RECOMMENDED_SEMANTIC_WEIGHT` line.
 
 No Hugging Face token is needed — this repo is public.
 
@@ -67,14 +89,19 @@ No Hugging Face token is needed — this repo is public.
 cd benchmark
 pip install -r requirements.txt
 python run_benchmark.py
+python run_hybrid_sweep.py
 ```
 
 First run downloads the GGUF (a few hundred MB) into `huggingface_hub`'s
-own cache (`~/.cache/huggingface` by default); later runs reuse it. Pass
-`--model-path /path/to/file.gguf` to use an already-downloaded file instead.
+own cache (`~/.cache/huggingface` by default); later runs (including
+`run_hybrid_sweep.py`) reuse it. Pass `--model-path /path/to/file.gguf` to
+either script to use an already-downloaded file instead.
 
-Results are printed to the console and saved to `benchmark/results/results.json`
-and `results.csv`.
+`run_benchmark.py` prints/saves to `benchmark/results/results.json`/`.csv`.
+`run_hybrid_sweep.py` prints the sweep tables, the category breakdown per
+weight, and `RECOMMENDED_SEMANTIC_WEIGHT = X`, and saves the full sweep
+(including every weight's bootstrap stats and the recommendation's own
+reasoning) to `benchmark/results/hybrid_sweep_results.json`.
 
 ## Running the tests
 
@@ -84,9 +111,13 @@ pip install -r requirements.txt
 python -m pytest tests/
 ```
 
-These never download a model — a small hand-computed embedder stands in
-for the real one, so they check the dataset, the metrics math, and the
-query/passage prefix wiring, not embedding quality itself.
+`test_benchmark.py` never downloads a model — a small hand-computed
+embedder stands in for the real one, so it checks the dataset, the metrics
+math, and the query/passage prefix wiring, not embedding quality itself.
+`test_hybrid.py` covers `hybrid.py`/`bootstrap.py`/`recommend.py` the same
+way: all three are pure functions over plain lists/dicts, so the actual
+merge-ranking, resampling, and recommendation-decision logic is fully
+tested without a GGUF or llama_cpp at all.
 
 ## Extending the dataset
 
@@ -99,9 +130,16 @@ new ones for every id that didn't change.
 
 ## What this benchmark is not
 
-Per this task's own scope: no user-specific ranking weights, no RRF, no
-fusion formula, and no changes to Mobile_mem0's production code live here
-or anywhere else as a result of this benchmark. The direct cosine-sort
-"semantic ranking" in `run_benchmark.py` exists only to measure retrieval
-quality — it is not a candidate implementation for
-`ai.localstudio.commercialmemory`'s or Mobile_mem0's own ranking layer.
+Per this task's own scope: no new embedding models, no RRF, no learned
+fusion, and no changes to Mobile_mem0's own production code live here or
+anywhere else as a result of this benchmark. The direct cosine-sort
+"semantic ranking" in `run_benchmark.py`, and the weighted-sum
+`hybrid_rank()` in `hybrid.py`, exist only to measure retrieval quality —
+neither is a candidate implementation to copy into Mobile_mem0's own
+sources. `hybrid.py` mirrors the *shape* of
+`ai.localstudio.commercialmemory.HeuristicContextRanker` (a weighted sum,
+sorted descending, no threshold) so the sweep measures something
+structurally close to what production actually does, but the only thing
+this benchmark ever changes in the app repo is the single
+`SEMANTIC_RANKING_WEIGHT` number `run_hybrid_sweep.py` recommends — never
+the ranking formula itself, and never anything inside Mobile_mem0.
